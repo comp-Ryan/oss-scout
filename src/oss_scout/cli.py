@@ -28,7 +28,7 @@ def _classifiers(cfg):
 
 
 def _do_harvest(cfg, conn):
-    s = harvest.run_harvest(conn, GitHubClient(github_token()), cfg)
+    s = harvest.run_harvest(conn, GitHubClient(github_token(), min_interval=cfg.github_min_interval), cfg)
     logging.info("harvest %s", s)
     console.print(f"harvest: queries={s.queries} seen={s.seen} new={s.new_issues} updated={s.updated_issues} "
                   f"excluded_repos={s.excluded_repos} linked_pr={s.skipped_linked_pr} stale={s.marked_stale} errors={len(s.errors)}")

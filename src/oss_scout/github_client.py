@@ -1,6 +1,7 @@
 from __future__ import annotations
 import base64
 import json
+import logging
 import subprocess
 import time
 import urllib.parse
@@ -8,6 +9,7 @@ import urllib.request
 from typing import Any, Callable, Iterator
 from urllib.error import HTTPError
 
+log = logging.getLogger(__name__)
 API = "https://api.github.com"
 DEFAULT_SECONDARY_SLEEP = 60.0
 MAX_5XX_RETRIES = 3
@@ -27,17 +29,31 @@ class GitHubClient:
 
     def __init__(self, token: str, sleep: Callable[[float], None] = time.sleep,
                  opener: Callable = urllib.request.urlopen, now: Callable[[], float] = time.time,
-                 timeout: float = 30.0):
+                 timeout: float = 30.0, min_interval: float = 0.0):
         self.token = token
         self.sleep = sleep
         self.opener = opener
         self.now = now
         self.timeout = timeout
+        self.min_interval = min_interval
+        self._last_request: float | None = None
+        self.requests_made = 0
+
+    def _pace(self) -> None:
+        if self.min_interval and self._last_request is not None:
+            gap = self._last_request + self.min_interval - self.now()
+            if gap > 0:
+                self.sleep(gap)
+        self._last_request = self.now()
+        self.requests_made += 1
+        if self.requests_made % 100 == 0:
+            log.info("github requests made: %d", self.requests_made)
 
     # ---- low level -------------------------------------------------------
     def _request(self, method: str, url: str, body: bytes | None = None) -> tuple[Any, dict]:
         retries_5xx = 0
         while True:
+            self._pace()
             req = urllib.request.Request(url, data=body, method=method, headers={
                 "Authorization": f"Bearer {self.token}",
                 "Accept": "application/vnd.github+json",
@@ -57,10 +73,15 @@ class GitHubClient:
                 except Exception:
                     msg = ""
                 if status in (403, 429) and ("rate limit" in msg.lower() or e.headers.get("X-RateLimit-Remaining") == "0"):
+                    retry_after = e.headers.get("Retry-After")
                     reset = e.headers.get("X-RateLimit-Reset")
-                    wait = DEFAULT_SECONDARY_SLEEP
-                    if reset:
+                    if retry_after:
+                        wait = max(1.0, float(retry_after))
+                    elif reset:
                         wait = max(1.0, float(reset) - self.now() + 1.0)
+                    else:
+                        wait = DEFAULT_SECONDARY_SLEEP
+                    log.warning("GitHub %s on %s: %s; sleeping %.0fs", status, url.split("?")[0], msg, wait)
                     self.sleep(wait)
                     continue
                 if 500 <= status < 600 and retries_5xx < MAX_5XX_RETRIES:

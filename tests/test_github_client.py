@@ -138,3 +138,24 @@ def test_list_issues_filters_open_unassigned_label_since():
     assert url.startswith("https://api.github.com/repos/o/r/issues?")
     for part in ("state=open", "assignee=none", "labels=good+first+issue", "since=2026-09-01T00%3A00%3A00Z", "per_page=2", "page=1"):
         assert part in url, part
+
+def test_secondary_limit_honors_retry_after_and_logs(caplog):
+    import logging
+    err = _http_error(403, b'{"message":"You have exceeded a secondary rate limit"}')
+    err.headers["Retry-After"] = "7"
+    c, calls, slept = make_client([err, FakeResp({"ok": 1})])
+    with caplog.at_level(logging.WARNING, logger="oss_scout.github_client"):
+        c.rest("x")
+    assert slept == [7.0]
+    assert any("secondary rate limit" in r.message and "7" in r.message for r in caplog.records)
+
+def test_requests_are_paced_by_min_interval():
+    responses = [FakeResp({"ok": 1}), FakeResp({"ok": 2})]
+    calls, slept, clock = [], [], {"t": 1000.0}
+    def opener(req, timeout=0):
+        calls.append(req); return responses.pop(0)
+    def sleep(s):
+        slept.append(s); clock["t"] += s
+    c = GitHubClient("tok", sleep=sleep, opener=opener, now=lambda: clock["t"], min_interval=0.5)
+    c.rest("a"); c.rest("b")
+    assert slept == [0.5]  # second call waited out the interval; first did not

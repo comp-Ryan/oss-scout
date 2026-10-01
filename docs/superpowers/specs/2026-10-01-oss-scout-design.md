@@ -80,7 +80,7 @@ SQLite, one file `data/scout.db`. Tables:
   history.
 - `transitions`: `issue_id`, `from_state`, `to_state`, `actor` (`harvester` | `classifier` | `scorer` |
   `agent:<run_id>` | `user`), `note`, `at`.
-- `agent_runs` and `agent_events` (Stage 2, Section 9.1), `threads` and `messages` (Stage 3), `drafts` (Stage 4).
+- `agent_runs` and `agent_events` (Stage 2, Section 9.1), `threads` and `messages` (Stage 3, Section 10.2), `drafts` (Stage 4).
 
 ## 5. Issue states
 
@@ -245,12 +245,70 @@ fires, a timeout kills the process and records `failed`, the daily cap and the a
 and a clone failure records `failed` without starting the agent. The GitHub related-PR query is tested
 against a recorded GraphQL response.
 
-## 10. Frontend and discussion (Stage 3, summary)
+## 10. Frontend and discussion (Stage 3)
 
-Vite, React, TypeScript, served by FastAPI after `npm run build`. Screens: queue (filters for category, state,
-difficulty, bounty, with score breakdown), issue page (brief, chat thread, approve, dismiss), agents page
-(live runs, token counts, errors). Chat is an agy conversation resumed by `--conversation <id>`, one per
-issue, stored in `threads` and `messages`.
+### 10.1 Backend API
+
+FastAPI app in `src/oss_scout/api/`, started by `scout serve` (uvicorn on `127.0.0.1:8765`). It serves JSON
+under `/api` and the built frontend from `web/dist` with a single-page fallback. All endpoints read the
+SQLite file through the same modules the CLI uses; no logic lives only in the API.
+
+| method and path | what it does |
+|---|---|
+| `GET /api/status` | counts per state, last transition, timer health (last `scout run` summary from the log) |
+| `GET /api/queue?category&state&limit` | `queue_view.queue_rows` |
+| `GET /api/issues/{id}` | issue, repo, latest classification, latest score with breakdown, latest brief, runs, transitions, thread |
+| `POST /api/issues/{id}/dismiss` `{note}` | user dismiss |
+| `POST /api/issues/{id}/discuss` | `analyzed -> discussing`; creates the thread |
+| `GET /api/issues/{id}/messages` | the thread |
+| `POST /api/issues/{id}/messages` `{content}` | appends the user message, runs one chat turn, appends the reply, returns both |
+| `POST /api/issues/{id}/approve` `{plan}` | `discussing -> plan_approved`, stores the agreed plan text on the thread |
+| `GET /api/runs?limit` | recent agent runs |
+| `GET /api/runs/{id}/events?after=seq` | events with `seq > after`; the agents page polls this every 2 s while a run is `running` |
+| `GET /api/settings` | current weights and category values |
+| `PUT /api/settings` | writes `weights` and `category_values` into `scout.yaml` and re-scores |
+
+### 10.2 Chat
+
+Tables: `threads(issue_id pk, conversation_id, plan, created_at)` and `messages(id, issue_id, role
+(`user` | `assistant`), content, at, input_tokens, output_tokens)`. Schema version 3.
+
+One agy conversation per issue, verified 2026-10-01: a first `agy --output-format json --print ...` call returns
+a `conversation_id`, and `agy --conversation <id> --print ...` continues it with memory of earlier turns. The
+first turn carries the issue, the brief, the contributing notes and the related PRs as context, and runs with
+cwd in the clone and `--add-dir` so the agent can read code when asked. Later turns send only the user's
+message. Chat model from config `chat_model`, default `claude-sonnet-4-6`, because discussion quality matters
+more than cost here; the per-turn timeout is `chat_timeout_s` (300). The chat agent is told the same
+read-only rule as the analysis agent.
+
+### 10.3 Frontend
+
+Vite + React + TypeScript in `web/`, plain CSS, `react-router-dom` for three routes. No state library; each
+page fetches from `/api` with hooks.
+
+- **Queue** (`/`): filter chips for category, state, difficulty, bounty; a table of rank, score, repo, issue,
+  category, kind, difficulty, state, title; hovering the score shows the breakdown; the row links to the
+  issue page. A small settings drawer edits weights and category values and calls `PUT /api/settings`.
+- **Issue** (`/issues/:id`): header with title, repo, labels, link to GitHub; the classification and score
+  breakdown; the brief; the related runs; the chat thread with an input box; actions: Discuss (when
+  `analyzed`), Approve plan (when `discussing`, with a textarea prefilled from the brief's approach), Dismiss.
+- **Agents** (`/agents`): the runs list; selecting a run shows its events, newest at the bottom, polling while
+  running; token totals per day.
+
+The build output is committed? No: `web/dist` is git-ignored and built by `install_service.sh` (`npm ci &&
+npm run build`). `scout open` runs `xdg-open http://127.0.0.1:8765`.
+
+### 10.4 Services
+
+`systemd/oss-scout.service` (simple, `uv run scout serve`, restart on failure) alongside the existing timer.
+The API process is read-mostly; writes are the user's actions and chat turns, all short transactions.
+
+### 10.5 Testing
+
+FastAPI `TestClient` against a temp database for every endpoint, including the state transitions they cause
+and the 404 and 409 paths (dismiss an unknown issue; discuss an issue that is not `analyzed`). Chat with an
+injected runner that returns recorded agy JSON for the first and a resumed turn. Settings PUT against a temp
+`scout.yaml`. Frontend: Vitest with Testing Library for the queue filters and the score breakdown.
 
 ## 11. Draft PR flow (Stage 4, summary)
 

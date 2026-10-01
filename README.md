@@ -32,6 +32,19 @@ gh auth status         # the GitHub token comes from `gh auth token`
 Categories: `quant_trading`, `prediction_markets_finance`, `ai_agents_llm`, `data_scraping`,
 `dev_tools_cli`, `web_frontend`, `other`.
 
+## Analysis agents (Stage 2)
+
+| command | what it does |
+|---|---|
+| `uv run scout analyze [--limit N] [--issue owner/repo#N]` | run the Antigravity CLI (`agy`, Gemini Flash) on shortlisted issues in score order |
+| `uv run scout runs [--limit N]` | recent agent runs with status, duration, tokens, errors |
+| `uv run scout brief owner/repo#N` | the latest brief: summary, likely cause, approach, files, effort, risks, duplicate risk, AI-policy note |
+
+Each run makes a shallow partial clone under `data/clones/<owner>__<name>` and gives the agent read-only
+instructions; it may read, list and search files and nothing else. Events stream into `agent_events` as they
+arrive. Caps: `analysis_daily_cap` (30 runs per UTC day), `analysis_timeout_s` (600), two attempts per issue.
+`scout run` analyzes after scoring, so the hourly timer keeps briefs flowing under the cap.
+
 ## Config
 
 `scout.yaml` overrides defaults in `src/oss_scout/config.py`. The keys you will actually tune:

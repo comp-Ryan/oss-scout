@@ -42,3 +42,19 @@ def test_queue_rows_filter_by_lane_and_carry_preview_and_repo_facts(tmp_path):
     assert rows[0]["preview"].startswith("line one line two") and len(rows[0]["preview"]) <= 220
     assert rows[0]["stars"] == 1200 and rows[0]["language"] == "Python" and rows[0]["rising"] == 1 and rows[0]["lane"] == "resume"
     assert len(queue_view.queue_rows(conn, None, None, 10)) == 2
+
+def test_preview_skips_template_boilerplate_and_comments():
+    body = """<!-- raise_langchain_minimums-failure -->
+### Submission checklist
+- [x] This is a bug, not a usage question.
+- [x] I added a clear and descriptive title that summarizes this issue.
+### Description
+`raise_langchain_minimums.yml` failed, so LangChain-ecosystem dependency lower bounds are no longer raised.
+
+More detail here."""
+    p = queue_view.preview(body)
+    assert p.startswith("`raise_langchain_minimums.yml` failed") and "checklist" not in p and "<!--" not in p and "[x]" not in p
+
+def test_preview_falls_back_to_plain_text_when_nothing_else():
+    assert queue_view.preview("- [x] done\n### Only headings") == ""
+    assert queue_view.preview("Plain sentence. " * 30).endswith("…")

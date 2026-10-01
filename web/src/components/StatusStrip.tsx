@@ -19,7 +19,7 @@ export function StatusStrip() {
     st.issues.classified ? `${st.issues.classified.toLocaleString()} more classified` : null,
     st.last_run ? `last run ${clock(st.last_run)}` : 'no run yet',
     st.next_run ? `next ${clock(st.next_run)}` : null,
-    `${st.runs_today} agent runs today, ${Math.round(st.tokens_in_today / 1000)}k tokens in`,
+    `${st.runs_today} agent runs today, ${st.tokens_in_today >= 1e6 ? (st.tokens_in_today / 1e6).toFixed(1) + 'M' : Math.round(st.tokens_in_today / 1000) + 'k'} tokens in`,
   ].filter(Boolean)
   return <p className="strip">{parts.join('. ')}.</p>
 }

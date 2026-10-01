@@ -6,7 +6,7 @@ import { ScoreBadge } from '../components/ScoreBadge'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { CATEGORIES, catLabel, label, stars } from '../labels'
 
-const STATES = ['shortlisted', 'analyzed', 'discussing', 'plan_approved', 'drafting', 'pr_open', 'in_review', 'classified', 'dismissed']
+const STATES = ['shortlisted', 'analyzed', 'discussing', 'plan_approved', 'pr_open', 'in_review', 'classified', 'dismissed']  // drafting shares the 'working on' label with discussing
 
 export function Queue() {
   const [rows, setRows] = useState<QueueRow[] | null>(null)

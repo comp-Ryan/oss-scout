@@ -68,6 +68,10 @@ class Config:
     rising_min_stars: int = 50
     discover_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_DISCOVER_WEIGHTS))
     shortlist_per_owner_cap: int = 5
+    # Seed lists: sites and repos that point at other repos. Fetched once a day, cached under data/seeds.
+    seed_sources: list[str] = field(default_factory=lambda: ["gittrend", "up_for_grabs", "good_first_issue", "awesome_for_beginners"])
+    seed_refresh_hours: float = 24.0
+    gittrend_pages: list[str] = field(default_factory=lambda: ["rising", "hidden-gems", "trending/ai-agent", "trending/ai-coding-assistant"])
     github_min_interval: float = 0.25  # seconds between GitHub requests; stays under the secondary rate limit
     github_search_min_interval: float = 2.1  # search bucket is 30/min and trips a secondary limit when burst
     repo_qualifiers: list[str] = field(default_factory=lambda: ["good-first-issues", "help-wanted-issues"])
@@ -127,6 +131,10 @@ class Config:
     @property
     def clones_dir(self) -> Path:
         return self.data_dir / "clones"
+
+    @property
+    def seeds_dir(self) -> Path:
+        return self.data_dir / "seeds"
 
     @property
     def work_dir(self) -> Path:

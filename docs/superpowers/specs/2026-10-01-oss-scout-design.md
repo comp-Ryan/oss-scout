@@ -80,7 +80,7 @@ SQLite, one file `data/scout.db`. Tables:
   history.
 - `transitions`: `issue_id`, `from_state`, `to_state`, `actor` (`harvester` | `classifier` | `scorer` |
   `agent:<run_id>` | `user`), `note`, `at`.
-- `agent_runs` and `agent_events` (Stage 2, Section 9.1), `threads` and `messages` (Stage 3, Section 10.2), `drafts` (Stage 4).
+- `agent_runs` and `agent_events` (Stage 2, Section 9.1), `threads` and `messages` (Stage 3, Section 10.2), `drafts` (Stage 4, Section 11.1).
 
 ## 5. Issue states
 
@@ -310,15 +310,69 @@ and the 404 and 409 paths (dismiss an unknown issue; discuss an issue that is no
 injected runner that returns recorded agy JSON for the first and a resumed turn. Settings PUT against a temp
 `scout.yaml`. Frontend: Vitest with Testing Library for the queue filters and the score breakdown.
 
-## 11. Draft PR flow (Stage 4, summary)
+## 11. Draft PR flow (Stage 4)
 
-On approve: fork if needed, create a worktree under `data/worktrees/<repo>/<issue>`, write `BRIEF.md`
-(issue, agreed plan from the thread, contributing rules, test command). The issue page shows "open in
-Claude Code", which launches a Claude Code session in that worktree with the brief as the first prompt in a
-terminal. Ryan and Claude Code implement there. "Submit" runs the repo's tests, pushes the branch to the
-fork, and opens a draft PR via `gh pr create --draft` with a body Ryan edits first. Commits are authored by
-Ryan. An agy headless run (Sonnet or Opus, accept-edits mode) is the per-issue fallback for small fixes. If
-tests fail, the issue returns to `discussing` with the output attached. The bot never marks a PR ready.
+The only stage that writes to GitHub, and only on three explicit user actions: fork, push a branch, open a
+draft PR. Each is a button on the issue page or a CLI command. The bot never marks a PR ready and never
+comments.
+
+### 11.1 Table (schema version 4)
+
+`drafts(issue_id pk, work_dir, worktree, branch, base_branch, brief_path, test_cmd, pr_url, created_at,
+submitted_at, last_error)`.
+
+### 11.2 Prepare (`plan_approved -> drafting`)
+
+`scout prep owner/repo#N` or `POST /api/issues/{id}/prep`:
+
+1. Fork: `gh repo fork owner/repo --clone=false` (idempotent; GitHub returns the existing fork).
+2. Work clone: `git clone --filter=blob:none https://github.com/<user>/<repo> data/work/<owner>__<repo>`,
+   reused on later issues of the same repo, with an `upstream` remote pointing at the original. A partial
+   clone, not a shallow one, because GitHub rejects pushes from shallow clones.
+3. Default branch from `gh repo view owner/repo --json defaultBranchRef`; `git fetch upstream <default>`.
+4. Worktree: `git worktree add data/worktrees/<owner>__<repo>/<N> -b scout/<N>-<slug> upstream/<default>`.
+5. `BRIEF.md` in the worktree: issue title, URL and body, the approved plan from the thread, the brief's
+   files and approach, contributing notes (truncated), the AI policy note, the rule that commits are Ryan's and
+   nothing is pushed by the bot, and the test command guess (`test_cmd`: from contributing text if it names
+   one, else by language: `pytest` for Python, `npm test` for TypeScript/JavaScript).
+6. Insert the `drafts` row; transition with actor `user`.
+
+### 11.3 Work
+
+`scout work owner/repo#N` or `POST /api/issues/{id}/launch` opens a terminal (`x-terminal-emulator -e`) in
+the worktree running `claude` with the brief as the opening prompt, and returns the exact command so the user
+can run it elsewhere (Orca, tmux) if the launcher cannot open a window. Claude Code is interactive; Ryan
+drives it. The optional headless path, CLI only: `scout work owner/repo#N --agent` runs
+`agy --mode accept-edits --model <draft_model> --print <brief>` in the worktree and reports the diff stat.
+
+### 11.4 Submit (`drafting -> pr_open`, or back to `discussing`)
+
+`scout submit owner/repo#N [--title] [--body]` or `POST /api/issues/{id}/submit {title, body}`:
+
+1. Refuse (409) if the worktree has uncommitted changes or no commits ahead of `upstream/<default>`.
+2. Run `test_cmd` in the worktree (timeout 900 s). On failure: store the tail of the output in
+   `last_error`, transition `drafting -> discussing` with the note "tests failed", and return 409 with the
+   output. Nothing is pushed.
+3. `git push -u origin <branch>` (origin is the fork), then
+   `gh pr create --repo owner/repo --head <user>:<branch> --base <default> --draft --title --body`.
+   Title defaults to the issue title; body defaults to the approved plan plus "Closes #N". Store `pr_url`,
+   `submitted_at`; transition `drafting -> pr_open`.
+4. The harvester later moves `pr_open -> merged | closed` by reading the PR state (Section 6 gains one
+   check per `pr_open` issue).
+
+### 11.5 Frontend
+
+Issue page actions by state: `plan_approved` shows **Prepare worktree**; `drafting` shows the worktree
+path, the launch command in a copyable box, **Open in Claude Code**, and a submit form (title and body
+prefilled) with **Open draft PR**; `pr_open` shows the PR link. Test output from a failed submit is shown
+on the page.
+
+### 11.6 Testing
+
+All git and gh calls go through one injected shell function; tests assert the exact command sequences,
+the refusal on a dirty worktree, the test-failure path and its transition, idempotent fork and clone reuse,
+and BRIEF.md content (plan present, "None" never present). No test forks, pushes or opens anything.
+The first real fork, push and draft PR are Ryan's to run.
 
 ## 12. Stage 1 scope
 

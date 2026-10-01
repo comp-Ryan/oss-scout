@@ -80,7 +80,7 @@ SQLite, one file `data/scout.db`. Tables:
   history.
 - `transitions`: `issue_id`, `from_state`, `to_state`, `actor` (`harvester` | `classifier` | `scorer` |
   `agent:<run_id>` | `user`), `note`, `at`.
-- `agent_runs` (Stage 2), `threads` and `messages` (Stage 3), `drafts` (Stage 4): defined in those specs.
+- `agent_runs` and `agent_events` (Stage 2, Section 9.1), `threads` and `messages` (Stage 3), `drafts` (Stage 4).
 
 ## 5. Issue states
 
@@ -185,14 +185,65 @@ After each scoring pass, the top `shortlist_count` (default 20) `classified` iss
 The breakdown is stored so the frontend shows why an item ranks where it does. Changing weights re-scores
 everything on the next run; old scores stay in the table with their `weights_hash`.
 
-## 9. Analysis agents (Stage 2, summary)
+## 9. Analysis agents (Stage 2)
 
-One agy run per shortlisted issue: `agy --print --model gemini-3.8-flash-medium --output-format stream-json
---json-schema brief.schema.json --add-dir <temp clone>`. The prompt gives it the issue, the contributing
-text, and the task: summarize, find the likely cause, propose an approach, list files, estimate effort, note
-risks and AI policy, and look for similar open PRs. Stream events are appended to `agent_runs` as they
-arrive so the frontend can show live progress. Caps: per-day run count, per-run timeout, per-issue retry
-limit of 2. On success the issue moves to `analyzed`.
+One Antigravity CLI run per shortlisted issue, on Gemini Flash, in print mode with streaming JSON. Verified
+2026-10-01: `agy --model <m> --output-format stream-json --json-schema <file> --add-dir <dir> --print <prompt>`
+reads files through its own `view_file` tool without any permission prompt and returns the parsed answer in
+the final `result` event under `structured_output`. `--print` must come last with the prompt right after it.
+
+### 9.1 Tables (schema version 2)
+
+- `agent_runs`: `id`, `issue_id`, `kind` (`analysis`), `model`, `status` (`running` | `done` | `failed`),
+  `attempt`, `started_at`, `finished_at`, `conversation_id`, `input_tokens`, `output_tokens`,
+  `duration_s`, `brief` (json, nullable), `error` (nullable).
+- `agent_events`: `id`, `run_id`, `seq`, `at`, `event` (the raw stream-json line). Written as each line
+  arrives so a reader can follow a run live. The Stage 3 frontend polls this table.
+
+### 9.2 Inputs gathered before the run
+
+- The issue row and its repo row (stars, language, contributing text truncated to 4,000 characters, AI policy).
+- Related pull requests: every PR cross-referenced from the issue's timeline, open or closed, with number,
+  state, title and whether it would close the issue. The closing check in Section 6 is the same query.
+- A shallow partial clone, `git clone --depth 1 --filter=blob:limit=200k`, into `data/clones/<owner>__<name>`,
+  reused on later runs. Clone timeout 180 s; a failed clone fails the run.
+
+### 9.3 The brief
+
+Fixed JSON schema, enforced by `--json-schema`:
+
+| field | type |
+|---|---|
+| `summary` | string, two or three sentences |
+| `likely_cause` | string |
+| `approach` | string, the proposed change |
+| `files` | array of repo-relative paths |
+| `effort` | `small` / `medium` / `large` |
+| `risks` | array of strings |
+| `duplicate_risk` | `none` / `possible` / `likely`, judged from the related PRs |
+| `ai_policy_note` | string, what the contributing docs say about AI help, or "none" |
+
+The prompt tells the agent it is read-only: it may read, list and search files in the clone and nothing
+else. It must not run build or network commands, edit files, or use git.
+
+### 9.4 Run control
+
+- `scout analyze [--limit N] [--issue owner/repo#N]` runs analysis for `shortlisted` issues in score order.
+  `scout run` calls it after scoring.
+- Caps from config: `analysis_daily_cap` (default 30 runs started per UTC day), `analysis_timeout_s`
+  (default 600), two attempts per issue. An issue with two failed runs is left `shortlisted` and skipped.
+- On success the issue moves `shortlisted -> analyzed` with actor `agent:<run_id>`. On failure the run row
+  holds the error and the issue state does not change.
+- `scout runs [--limit N]` lists recent runs with status, tokens and duration. `scout brief owner/repo#N`
+  prints the latest brief.
+
+### 9.5 Testing
+
+A recorded stream-json transcript (from the 2026-10-01 probe) is the fixture. Tests inject a fake process
+and a fake cloner: events are stored in order, the brief is parsed from the `result` event, the transition
+fires, a timeout kills the process and records `failed`, the daily cap and the attempt limit are enforced,
+and a clone failure records `failed` without starting the agent. The GitHub related-PR query is tested
+against a recorded GraphQL response.
 
 ## 10. Frontend and discussion (Stage 3, summary)
 

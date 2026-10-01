@@ -28,3 +28,17 @@ def test_render_table_keeps_rows_on_one_line(tmp_path):
     title_col = [c for c in t.columns if c.header == "title"][0]
     assert title_col.no_wrap and title_col.overflow == "ellipsis"
     assert all(c.no_wrap for c in t.columns)
+
+def test_queue_rows_filter_by_lane_and_carry_preview_and_repo_facts(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    conn.execute("insert into repos(full_name, stars, language, rising) values ('o/r', 1200, 'Python', 1)")
+    for iid, lane, body in (("I1", "resume", "line one\n\nline two " + "x" * 400), ("I2", "discover", None)):
+        conn.execute("insert into issues(id, repo, number, title, body, url, state, harvested_at, last_seen_at, lane) values (?,'o/r',?, 't',?, 'u','shortlisted','x','x',?)", (iid, int(iid[1:]), body, lane))
+        conn.execute("insert into scores(issue_id, total, breakdown, weights_hash, scored_at) values (?,5.0,'{}','h','x')", (iid,))
+    conn.commit()
+    rows = queue_view.queue_rows(conn, None, None, 10, lane="discover")
+    assert [r["number"] for r in rows] == [2] and rows[0]["preview"] == ""
+    rows = queue_view.queue_rows(conn, None, None, 10, lane="resume")
+    assert rows[0]["preview"].startswith("line one line two") and len(rows[0]["preview"]) <= 220
+    assert rows[0]["stars"] == 1200 and rows[0]["language"] == "Python" and rows[0]["rising"] == 1 and rows[0]["lane"] == "resume"
+    assert len(queue_view.queue_rows(conn, None, None, 10)) == 2

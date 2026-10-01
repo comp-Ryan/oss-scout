@@ -34,7 +34,8 @@ def _clamp(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
-def compute(issue: dict, repo: dict, cls: dict[str, dict], cfg: Config, now: datetime) -> tuple[float, dict[str, float]]:
+def compute(issue: dict, repo: dict, cls: dict[str, dict], cfg: Config, now: datetime, lane: str = "resume") -> tuple[float, dict[str, float]]:
+    """Weighted sum of 0..1 terms. The discover lane uses cfg.discover_weights, which drops recognition and adds a rising term."""
     stars = repo.get("stars") or 0
     recognition = 0.5 * _clamp(math.log10(max(stars, 1)) / STARS_LOG_CAP) + 0.5 * (1.0 if repo.get("org_known") else 0.0)
 
@@ -55,9 +56,12 @@ def compute(issue: dict, repo: dict, cls: dict[str, dict], cfg: Config, now: dat
     bounty = 1.0 if issue.get("has_bounty") else 0.0
     ai_policy = AI_POLICY_VALUE.get(repo.get("ai_policy") or "none", 0.0)
 
+    rising = 1.0 if repo.get("rising") else 0.0
+
     raw = {"recognition": recognition, "mergeability": mergeability, "language_fit": language_fit, "category": category,
-           "difficulty_fit": difficulty_fit, "freshness": freshness, "bounty": bounty, "ai_policy": ai_policy}
-    breakdown = {term: round(raw[term] * cfg.weights.get(term, 0.0), 4) for term in cfg.weights}
+           "difficulty_fit": difficulty_fit, "freshness": freshness, "bounty": bounty, "ai_policy": ai_policy, "rising": rising}
+    weights = cfg.discover_weights if lane == "discover" else cfg.weights
+    breakdown = {term: round(raw.get(term, 0.0) * w, 4) for term, w in weights.items()}
     return round(sum(breakdown.values()), 4), breakdown
 
 
@@ -73,29 +77,40 @@ def run_scoring(conn, cfg: Config, now: datetime | None = None) -> ScoreSummary:
     s = ScoreSummary()
     h = weights_hash(cfg)
     rows = conn.execute(
-        "select i.*, r.stars, r.org_known, r.external_merge_rate, r.median_first_response_hours, r.language, r.ai_policy "
+        "select i.*, r.stars, r.org_known, r.external_merge_rate, r.median_first_response_hours, r.language, r.ai_policy, r.rising "
         "from issues i join repos r on r.full_name = i.repo where i.state in ('classified', 'shortlisted')").fetchall()
     ranked = []
     for row in rows:
         issue = dict(row)
         cls = classify.latest(conn, issue["id"])
-        total, breakdown = compute(issue, issue, cls, cfg, now)
+        lane = issue.get("lane") or "resume"
+        total, breakdown = compute(issue, issue, cls, cfg, now, lane)
         with conn:
             conn.execute("insert into scores(issue_id, total, breakdown, weights_hash, scored_at) values (?,?,?,?,?)",
                          (issue["id"], total, json.dumps(breakdown), h, utcnow()))
         s.scored += 1
-        ranked.append((total, issue["id"], issue["state"], issue["repo"]))
+        ranked.append((total, issue["id"], issue["state"], issue["repo"], lane))
     ranked.sort(key=lambda t: -t[0])
     keep: set[str] = set()
-    per_repo: dict[str, int] = {}
-    for total, iid, _, repo in ranked:
-        if len(keep) >= cfg.shortlist_count or total < cfg.shortlist_floor:
-            break
-        if per_repo.get(repo, 0) >= cfg.shortlist_per_repo_cap:
-            continue
-        keep.add(iid)
-        per_repo[repo] = per_repo.get(repo, 0) + 1
-    for total, iid, state, _ in ranked:
+    for lane_name in ("resume", "discover"):
+        per_repo: dict[str, int] = {}
+        per_owner: dict[str, int] = {}
+        kept = 0
+        for total, iid, _, repo, lane in ranked:
+            if lane != lane_name:
+                continue
+            if kept >= cfg.shortlist_count or total < cfg.shortlist_floor:
+                break
+            owner = repo.split("/", 1)[0]
+            if per_repo.get(repo, 0) >= cfg.shortlist_per_repo_cap:
+                continue
+            if lane_name == "resume" and per_owner.get(owner, 0) >= cfg.shortlist_per_owner_cap:
+                continue
+            keep.add(iid)
+            kept += 1
+            per_repo[repo] = per_repo.get(repo, 0) + 1
+            per_owner[owner] = per_owner.get(owner, 0) + 1
+    for total, iid, state, _, _ in ranked:
         if iid in keep and state == "classified":
             transitions.apply(conn, iid, "shortlisted", "scorer", f"score {total}")
             s.shortlisted += 1

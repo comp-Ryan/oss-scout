@@ -99,3 +99,35 @@ def test_shortlist_caps_issues_per_repo(tmp_path):
     states = {r["id"]: r["state"] for r in conn.execute("select id, state from issues")}
     assert sum(1 for i, st in states.items() if i.startswith("B") and st == "shortlisted") == 2
     assert states["S"] == "shortlisted"  # the small repo gets in because the big one is capped
+
+def test_discover_lane_uses_its_own_weights_and_rising_term():
+    cfg = Config()
+    repo = _repo(stars=80, org_known=0, rising=1)
+    total_d, br_d = score.compute(_issue(), repo, CLS, cfg, NOW, lane="discover")
+    total_r, br_r = score.compute(_issue(), repo, CLS, cfg, NOW, lane="resume")
+    assert br_d["recognition"] == 0.0 and br_d["rising"] == pytest.approx(cfg.discover_weights["rising"])
+    assert "rising" not in br_r and br_r["recognition"] > 0
+    _, br_d0 = score.compute(_issue(), _repo(stars=80, org_known=0, rising=0), CLS, cfg, NOW, lane="discover")
+    assert br_d0["rising"] == 0.0
+
+def test_shortlist_is_per_lane_and_caps_per_owner(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    # six resume-lane issues from six repos of one owner, plus two discover-lane issues
+    for n in range(6):
+        repo = f"bigorg/repo{n}"
+        conn.execute("insert into repos(full_name, stars, language, org_known, external_merge_rate, median_first_response_hours, ai_policy) values (?,50000,'Python',1,0.8,2.0,'none')", (repo,))
+        conn.execute("insert into issues(id, repo, number, title, url, state, updated_at, harvested_at, last_seen_at, lane) values (?,?,1,'t','u','classified','2026-10-01T00:00:00Z','x','x','resume')", (f"R{n}", repo))
+        for q, c in [("category", "quant_trading"), ("kind", "bug"), ("difficulty", "small"), ("worth_a_look", "yes")]:
+            conn.execute("insert into classifications(issue_id, question, choice, confidence, probabilities, model, asked_at) values (?,?,?,0.9,'{}','s','x')", (f"R{n}", q, c))
+    for n in range(2):
+        repo = f"small/d{n}"
+        conn.execute("insert into repos(full_name, stars, language, org_known, external_merge_rate, median_first_response_hours, ai_policy, source, rising) values (?,60,'Python',0,0.5,5.0,'none','discover',1)", (repo,))
+        conn.execute("insert into issues(id, repo, number, title, url, state, updated_at, harvested_at, last_seen_at, lane) values (?,?,1,'t','u','classified','2026-10-01T00:00:00Z','x','x','discover')", (f"D{n}", repo))
+        for q, c in [("category", "quant_trading"), ("kind", "bug"), ("difficulty", "small"), ("worth_a_look", "yes")]:
+            conn.execute("insert into classifications(issue_id, question, choice, confidence, probabilities, model, asked_at) values (?,?,?,0.9,'{}','s','x')", (f"D{n}", q, c))
+    conn.commit()
+    s = score.run_scoring(conn, Config(shortlist_count=10, shortlist_floor=4.0, shortlist_per_owner_cap=5), NOW)
+    states = {r["id"]: r["state"] for r in conn.execute("select id, state from issues")}
+    assert sum(1 for i, st in states.items() if i.startswith("R") and st == "shortlisted") == 5   # owner cap
+    assert states["D0"] == "shortlisted" and states["D1"] == "shortlisted"                       # own lane, not crowded out
+    assert s.shortlisted == 7

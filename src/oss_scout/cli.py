@@ -127,11 +127,12 @@ def validate_command(labeled):
 @click.option("--category", default=None)
 @click.option("--state", default=None)
 @click.option("--limit", type=int, default=30)
+@click.option("--lane", default=None, help="resume (recognized repos) or discover (small and rising repos)")
 @click.option("--json", "as_json", is_flag=True)
-def queue_command(category, state, limit, as_json):
+def queue_command(category, state, limit, lane, as_json):
     """Ranked list of issues worth a look."""
     cfg = load_config()
-    rows = queue_view.queue_rows(db.connect(cfg.db_path), category, state, limit)
+    rows = queue_view.queue_rows(db.connect(cfg.db_path), category, state, limit, lane)
     if as_json:
         click.echo(json.dumps(rows, indent=1))
     else:

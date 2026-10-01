@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 from oss_scout import classify, db, harvest, queue_view, score, transitions, validate
-from oss_scout.agents import analysis
+from oss_scout.agents import analysis, draft
 from oss_scout.config import load_config as _load_config, jev_api_key
 from oss_scout.github_client import GitHubClient, github_token
 from oss_scout.jev_client import JevClient
@@ -221,3 +221,50 @@ def open_command():
     """Open the dashboard in the browser."""
     import subprocess
     subprocess.Popen(["xdg-open", "http://127.0.0.1:8765"])
+
+
+@main.command("prep")
+@click.argument("issue")
+def prep_command(issue):
+    """Fork, clone, branch and worktree with BRIEF.md for an approved plan (owner/repo#number)."""
+    cfg = load_config(); _setup_logging(cfg)
+    conn = db.connect(cfg.db_path)
+    try:
+        d = draft.prep(conn, cfg, _issue_id(conn, issue))
+    except draft.DraftError as e:
+        raise click.ClickException(str(e))
+    console.print(f"worktree {d['worktree']} on {d['branch']}\nbrief {d['brief_path']}")
+
+
+@main.command("work")
+@click.argument("issue")
+@click.option("--agent", is_flag=True, help="headless: let agy implement the plan in the worktree (you still review and commit)")
+def work_command(issue, agent):
+    """Open Claude Code in the issue's worktree with the brief as the first prompt."""
+    cfg = load_config(); _setup_logging(cfg)
+    conn = db.connect(cfg.db_path)
+    try:
+        if agent:
+            console.print(draft.work_agent(conn, cfg, _issue_id(conn, issue)))
+            return
+        out = draft.work(conn, cfg, _issue_id(conn, issue))
+    except draft.DraftError as e:
+        raise click.ClickException(str(e))
+    console.print(("launched in a terminal; " if out["launched"] else "no terminal found; run this yourself:\n") + out["command"])
+
+
+@main.command("submit")
+@click.argument("issue")
+@click.option("--title", default=None)
+@click.option("--body", default=None)
+def submit_command(issue, title, body):
+    """Run tests, push the branch to your fork, open a DRAFT pull request."""
+    cfg = load_config(); _setup_logging(cfg)
+    conn = db.connect(cfg.db_path)
+    try:
+        out = draft.submit(conn, cfg, _issue_id(conn, issue), title=title, body=body)
+    except draft.TestsFailed as e:
+        raise click.ClickException(f"tests failed; issue moved back to discussing:\n{e}")
+    except draft.DraftError as e:
+        raise click.ClickException(str(e))
+    console.print(f"draft PR: {out['pr_url']} (tests {out['tests']})")

@@ -253,3 +253,22 @@ def test_repo_fetch_error_is_recorded_once_not_per_issue(tmp_path):
     conn = db.connect(tmp_path / "t.db")
     s = harvest.run_harvest(conn, gh, cfg, NOW)
     assert gh.signal_calls == 1 and len(s.errors) == 1 and s.new_issues == 0
+
+def test_harvest_closes_the_loop_on_open_prs(tmp_path):
+    from oss_scout import transitions
+    cfg = _cfg()
+    gh = FakeGH({}, {})
+    conn = db.connect(tmp_path / "t.db")
+    conn.execute("insert into repos(full_name, stars) values ('o/r', 1000)")
+    for iid, n in (("I1", 1), ("I2", 2), ("I3", 3)):
+        conn.execute("insert into issues(id, repo, number, title, url, state, harvested_at, last_seen_at) values (?,'o/r',?,'t','u','pr_open','x','x')", (iid, n))
+        conn.execute("insert into drafts(issue_id, work_dir, worktree, branch, base_branch, brief_path, created_at, pr_url) values (?,'w','wt','b','main','p','x',?)", (iid, f"https://github.com/o/r/pull/{n}"))
+    conn.commit()
+    states = {"1": {"state": "MERGED", "merged": True}, "2": {"state": "CLOSED", "merged": False}, "3": {"state": "OPEN", "merged": False}}
+    def shell(cmd, cwd=None, timeout=600):
+        assert cmd[:3] == ["gh", "pr", "view"]
+        import json as _j
+        return 0, _j.dumps(states[cmd[3].rsplit("/", 1)[1]]), ""
+    s = harvest.run_harvest(conn, gh, cfg, NOW, shell=shell)
+    got = {r[0]: r[1] for r in conn.execute("select id, state from issues")}
+    assert got == {"I1": "merged", "I2": "closed", "I3": "pr_open"} and s.prs_closed == 2

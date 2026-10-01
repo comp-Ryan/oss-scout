@@ -60,3 +60,27 @@ def test_service_unit_exists_with_path():
     from pathlib import Path
     unit = (Path(__file__).resolve().parents[1] / "systemd" / "oss-scout.service").read_text()
     assert "uv run scout serve" in unit and "Environment=PATH=/home/ryan/.local/bin:" in unit and "Restart=on-failure" in unit
+
+def test_help_lists_prep_work_submit():
+    r = CliRunner().invoke(cli.main, ["--help"])
+    for name in ("prep", "work", "submit"):
+        assert name in r.output
+
+def test_prep_work_submit_commands_call_draft(tmp_path, monkeypatch):
+    cfg = Config(data_dir=tmp_path)
+    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+    conn = db.connect(cfg.db_path)
+    conn.execute("insert into repos(full_name) values ('o/r')")
+    conn.execute("insert into issues(id, repo, number, title, url, state, harvested_at, last_seen_at) values ('I1','o/r',4,'t','u','plan_approved','x','x')")
+    conn.commit(); conn.close()
+    from oss_scout.agents import draft
+    seen = []
+    monkeypatch.setattr(draft, "prep", lambda conn, cfg, iid, **kw: seen.append(("prep", iid)) or {"worktree": "/w", "branch": "b", "brief_path": "/w/BRIEF.md"})
+    monkeypatch.setattr(draft, "work", lambda conn, cfg, iid, **kw: seen.append(("work", iid)) or {"launched": False, "command": "cd /w && claude", "cwd": "/w"})
+    monkeypatch.setattr(draft, "submit", lambda conn, cfg, iid, **kw: seen.append(("submit", iid, kw.get("title"))) or {"pr_url": "https://x/pull/1", "tests": "passed", "branch": "b"})
+    assert CliRunner().invoke(cli.main, ["prep", "o/r#4"]).exit_code == 0
+    r = CliRunner().invoke(cli.main, ["work", "o/r#4"])
+    assert r.exit_code == 0 and "claude" in r.output
+    r = CliRunner().invoke(cli.main, ["submit", "o/r#4", "--title", "T"])
+    assert r.exit_code == 0 and "pull/1" in r.output
+    assert [s[0] for s in seen] == ["prep", "work", "submit"] and seen[2][2] == "T"

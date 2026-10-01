@@ -100,3 +100,33 @@ def test_settings_get_put_validates_and_rescores(tmp_path):
     assert r.json()["weights"]["bounty"] == 2.0 and "bounty: 2.0" in yaml_path.read_text()
     conn = db.connect(cfg.db_path)
     assert conn.execute("select count(*) from scores where issue_id='I1'").fetchone()[0] == 2
+
+def test_prep_launch_submit_endpoints(tmp_path, monkeypatch):
+    from oss_scout.agents import draft as draft_mod
+    cfg = Config(data_dir=tmp_path); _seed(cfg, state="plan_approved")
+    calls = []
+    def shell(cmd, cwd=None, timeout=600):
+        calls.append(cmd)
+        if cmd[:3] == ["gh", "repo", "view"]: return 0, json.dumps({"defaultBranchRef": {"name": "main"}}), ""
+        if cmd[:2] == ["git", "status"]: return 0, "", ""
+        if cmd[:2] == ["git", "rev-list"]: return 0, "1\n", ""
+        if cmd[:2] == ["bash", "-lc"]: return 1, "FAILED test_y", ""
+        if cmd[:2] == ["git", "worktree"]:
+            from pathlib import Path; Path(cmd[3]).mkdir(parents=True, exist_ok=True)
+        if cmd[:2] == ["git", "clone"]:
+            from pathlib import Path; (Path(cmd[-1]) / ".git").mkdir(parents=True, exist_ok=True)
+        return 0, "", ""
+    spawned = []
+    c = TestClient(create_app(cfg, chat_runner=lambda cmd, **kw: OK(), web_dist=tmp_path / "nodist", shell=shell,
+                              popen=lambda cmd, **kw: spawned.append(cmd), github_user="ryan"))
+    assert c.post("/api/issues/nope/prep").status_code == 404
+    r = c.post("/api/issues/I1/prep")
+    assert r.status_code == 200 and r.json()["branch"].startswith("scout/1-")
+    assert c.post("/api/issues/I1/prep").status_code == 409  # now drafting, not plan_approved
+    d = c.get("/api/issues/I1").json()
+    assert d["draft"]["branch"] == r.json()["branch"] and d["issue"]["state"] == "drafting"
+    r = c.post("/api/issues/I1/launch")
+    assert r.status_code == 200 and "claude" in r.json()["command"] and (spawned or r.json()["launched"] is False)
+    r = c.post("/api/issues/I1/submit", json={"title": "t", "body": "b"})
+    assert r.status_code == 409 and "FAILED test_y" in r.json()["detail"]
+    assert c.get("/api/issues/I1").json()["issue"]["state"] == "discussing"

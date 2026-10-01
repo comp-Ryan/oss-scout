@@ -24,6 +24,7 @@ class HarvestSummary:
     excluded_repos: int = 0
     skipped_linked_pr: int = 0
     marked_stale: int = 0
+    prs_closed: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -185,9 +186,30 @@ def _prefilter_repos(conn, gh, names: list[str], cfg: Config, now: datetime, s: 
     return excluded
 
 
-def run_harvest(conn, gh, cfg: Config, now: datetime | None = None) -> HarvestSummary:
+def close_open_prs(conn, s: HarvestSummary, shell) -> None:
+    """For issues with a draft PR open, read the PR state and finish the loop."""
+    rows = conn.execute("select i.id, d.pr_url from issues i join drafts d on d.issue_id = i.id where i.state = 'pr_open' and d.pr_url is not null").fetchall()
+    for r in rows:
+        try:
+            code, out, err = shell(["gh", "pr", "view", r["pr_url"], "--json", "state,merged"], None, 60)
+            if code != 0:
+                raise RuntimeError(err or out)
+            st = json.loads(out)
+        except Exception as e:
+            s.errors.append(f"pr {r['pr_url']}: {e}")
+            continue
+        if st.get("merged") or st.get("state") == "MERGED":
+            transitions.apply(conn, r["id"], "merged", "harvester", r["pr_url"]); s.prs_closed += 1
+        elif st.get("state") == "CLOSED":
+            transitions.apply(conn, r["id"], "closed", "harvester", r["pr_url"]); s.prs_closed += 1
+
+
+def run_harvest(conn, gh, cfg: Config, now: datetime | None = None, shell=None) -> HarvestSummary:
     now = now or datetime.now(timezone.utc)
     s = HarvestSummary()
+    if shell is None:
+        from oss_scout.agents.draft import default_shell as shell
+    close_open_prs(conn, s, shell)
     seen_ids: set[str] = set()
     rows: list[dict] = []
 

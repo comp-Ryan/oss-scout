@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from oss_scout import classify, db, queue_view, score, transitions
-from oss_scout.agents import analysis, chat
+from oss_scout.agents import analysis, chat, draft
 from oss_scout.config import PROJECT_ROOT, Config, load_config, update_yaml
 from oss_scout.transitions import InvalidTransition
 
@@ -31,8 +31,14 @@ class Settings(BaseModel):
     category_values: dict[str, float] | None = None
 
 
+class Submit(BaseModel):
+    title: str | None = None
+    body: str | None = None
+
+
 def create_app(cfg: Config, *, chat_runner=subprocess.run, gh_factory=None, config_path: Path | None = None,
-               web_dist: Path | None = None) -> FastAPI:
+               web_dist: Path | None = None, shell=draft.default_shell, popen=subprocess.Popen,
+               github_user: str | None = None) -> FastAPI:
     """Read-mostly JSON API over the same modules the CLI uses. Nothing here talks to GitHub except
     the related-PR lookup that seeds a chat, and that is a read."""
     app = FastAPI(title="OSS Scout")
@@ -72,7 +78,8 @@ def create_app(cfg: Config, *, chat_runner=subprocess.run, gh_factory=None, conf
         return {"issue": issue, "repo": repo, "classification": classify.latest(c, issue_id),
                 "score": {"total": sc[0], "breakdown": sc[1]} if sc else None,
                 "brief": analysis.latest_brief(c, issue_id), "runs": runs, "transitions": trans,
-                "thread": chat.thread(c, issue_id), "messages": chat.messages(c, issue_id)}
+                "thread": chat.thread(c, issue_id), "messages": chat.messages(c, issue_id),
+                "draft": draft.get(c, issue_id)}
 
     def _move(issue_id, to_state, note=""):
         c = conn()
@@ -117,6 +124,33 @@ def create_app(cfg: Config, *, chat_runner=subprocess.run, gh_factory=None, conf
             return chat.send(c, cfg, issue_id, body.content, runner=chat_runner, related=related)
         except chat.ChatError as e:
             raise HTTPException(502, str(e))
+
+    @app.post("/api/issues/{issue_id}/prep")
+    def prep(issue_id: str):
+        c = conn()
+        issue_or_404(c, issue_id)
+        try:
+            return draft.prep(c, cfg, issue_id, shell=shell, user=github_user)
+        except draft.DraftError as e:
+            raise HTTPException(409, str(e))
+
+    @app.post("/api/issues/{issue_id}/launch")
+    def launch(issue_id: str):
+        c = conn()
+        issue_or_404(c, issue_id)
+        try:
+            return draft.work(c, cfg, issue_id, popen=popen)
+        except draft.DraftError as e:
+            raise HTTPException(409, str(e))
+
+    @app.post("/api/issues/{issue_id}/submit")
+    def submit(issue_id: str, body: Submit):
+        c = conn()
+        issue_or_404(c, issue_id)
+        try:
+            return draft.submit(c, cfg, issue_id, shell=shell, title=body.title, body=body.body)
+        except draft.DraftError as e:  # includes TestsFailed, whose message is the test output
+            raise HTTPException(409, str(e))
 
     @app.get("/api/runs")
     def runs(limit: int = 50):

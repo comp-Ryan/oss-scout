@@ -118,3 +118,17 @@ def test_run_pending_orders_by_score(tmp_path):
     analysis.run_pending(conn, _cfg(tmp_path), FakeGH(), popen=popen, cloner=lambda name, *a, **k: tmp_path / name.replace("/", "__"), now=NOW, limit=2)
     assert len(order) == 2
     assert conn.execute("select issue_id from agent_runs order by id").fetchall()[0][0] == "high"
+
+def test_prompt_names_allowed_tools_and_warns_about_run_command():
+    p = analysis.build_prompt({"repo": "o/r", "number": 1, "title": "T", "body": "", "labels": "[]", "url": "u"}, {"stars": 1, "language": "Python"}, [])
+    for tool in ("view_file", "grep_search", "list_dir", "find_by_name"):
+        assert tool in p
+    assert "run_command" in p and "ends your turn" in p
+
+def test_success_without_structured_output_names_last_tool(tmp_path):
+    conn = db.connect(tmp_path / "t.db"); _seed(conn)
+    lines = [json.dumps({"event": "step_update", "step_update": {"step_type": "tool", "tool_name": "run_command", "state": "ACTIVE"}}),
+             json.dumps({"event": "result", "result": {"status": "SUCCESS", "response": "", "conversation_id": "c"}})]
+    rid = analysis.run_one(conn, _cfg(tmp_path), FakeGH(), "I1", popen=lambda cmd, **kw: FakeProc(lines), cloner=lambda *a, **k: tmp_path, now=NOW)
+    err = conn.execute("select error from agent_runs where id=?", (rid,)).fetchone()[0]
+    assert "no structured output" in err and "run_command" in err

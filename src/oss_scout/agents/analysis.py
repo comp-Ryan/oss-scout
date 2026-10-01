@@ -39,7 +39,9 @@ def build_prompt(issue: dict, repo: dict, related: list[dict]) -> str:
     body = (issue.get("body") or "").strip()[:BODY_CHARS] or "(empty)"
     return f"""You are analyzing a GitHub issue for a solo outside contributor who is deciding whether to work on it.
 You are READ-ONLY: you may list, search and read files in the current directory (a shallow clone of the repo).
-Do not run build, test, install or network commands. Do not edit files. Do not use git.
+Use only these tools: view_file, grep_search, list_dir, find_by_name. Do NOT call run_command for anything
+(not even find or ls): it needs a permission you do not have and ends your turn with no answer. Do not edit
+files. Do not use git.
 
 Issue {issue['repo']}#{issue['number']}: {issue['title']}
 URL: {issue.get('url')}
@@ -124,6 +126,7 @@ def run_one(conn, cfg: Config, gh, issue_id: str, *, popen=subprocess.Popen, clo
         _finish(conn, run_id, "failed", error=f"could not start agy: {e}")
         return run_id
     result = None
+    last_tool = None
     seq = 0
     for line in proc.stdout:
         line = line.rstrip("\n")
@@ -138,6 +141,8 @@ def run_one(conn, cfg: Config, gh, issue_id: str, *, popen=subprocess.Popen, clo
             continue
         if isinstance(ev, dict) and ev.get("event") == "result":
             result = ev.get("result") or {}
+        elif isinstance(ev, dict) and ev.get("event") == "step_update":
+            last_tool = (ev.get("step_update") or {}).get("tool_name") or last_tool
         if time.monotonic() - t0 > cfg.analysis_timeout_s:
             break
     remaining = max(1.0, cfg.analysis_timeout_s - (time.monotonic() - t0))
@@ -148,10 +153,14 @@ def run_one(conn, cfg: Config, gh, issue_id: str, *, popen=subprocess.Popen, clo
         _finish(conn, run_id, "failed", error=f"timeout after {cfg.analysis_timeout_s}s", duration_s=time.monotonic() - t0)
         return run_id
     duration = time.monotonic() - t0
-    if not result or result.get("status") != "SUCCESS" or not isinstance(result.get("structured_output"), dict):
+    if not result or result.get("status") != "SUCCESS":
         status = (result or {}).get("status", "no result event")
         _finish(conn, run_id, "failed", error=f"agent result status: {status}", duration_s=duration,
                 conversation_id=(result or {}).get("conversation_id"))
+        return run_id
+    if not isinstance(result.get("structured_output"), dict):
+        _finish(conn, run_id, "failed", error=f"no structured output (turn ended early; last tool: {last_tool})",
+                duration_s=duration, conversation_id=result.get("conversation_id"))
         return run_id
     usage = result.get("usage") or {}
     brief = result["structured_output"]

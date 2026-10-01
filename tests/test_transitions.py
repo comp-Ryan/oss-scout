@@ -31,3 +31,21 @@ def test_terminal_states_cannot_advance(tmp_path):
     conn = db.connect(tmp_path / "t.db"); _issue(conn, "dismissed")
     with pytest.raises(transitions.InvalidTransition):
         transitions.apply(conn, "I1", "classified", "classifier")
+
+def test_board_moves_by_user_and_in_review_state(tmp_path):
+    conn = db.connect(tmp_path / "t.db"); _issue(conn, "analyzed")
+    transitions.apply(conn, "I1", "discussing", "user")          # Picked -> Working on
+    transitions.apply(conn, "I1", "pr_open", "user", "manual")    # Working on -> PR opened (hand-opened PR)
+    transitions.apply(conn, "I1", "in_review", "user")            # PR opened -> Progressing
+    transitions.apply(conn, "I1", "pr_open", "user")              # and back
+    transitions.apply(conn, "I1", "in_review", "user")
+    transitions.apply(conn, "I1", "merged", "user")               # Progressing -> Accepted
+    assert conn.execute("select state from issues where id='I1'").fetchone()[0] == "merged"
+
+def test_harvester_closes_in_review_too_and_user_can_pick_from_shortlist(tmp_path):
+    conn = db.connect(tmp_path / "t.db"); _issue(conn, "shortlisted")
+    transitions.apply(conn, "I1", "discussing", "user")  # straight from the queue to Working on
+    transitions.apply(conn, "I1", "pr_open", "user"); transitions.apply(conn, "I1", "in_review", "user")
+    transitions.apply(conn, "I1", "closed", "harvester")
+    assert transitions.BOARD_COLUMNS["in_review"] == "Progressing"
+    assert transitions.LABELS["shortlisted"] == "top picks"

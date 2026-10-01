@@ -44,8 +44,8 @@ def test_issue_detail_has_everything(tmp_path):
     assert c.get("/api/issues/nope").status_code == 404
 
 def test_discuss_requires_analyzed_then_chat_and_approve(tmp_path):
-    c, cfg, _ = _client(tmp_path, state="shortlisted")
-    assert c.post("/api/issues/I1/discuss").status_code == 409
+    c, cfg, _ = _client(tmp_path, state="harvested")
+    assert c.post("/api/issues/I1/discuss").status_code == 409  # not even classified yet
     conn = db.connect(cfg.db_path); conn.execute("update issues set state='analyzed'"); conn.commit(); conn.close()
     assert c.post("/api/issues/I1/discuss").json()["state"] == "discussing"
     r = c.post("/api/issues/I1/messages", json={"content": "hi"})

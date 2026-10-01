@@ -4,9 +4,24 @@ from oss_scout.db import utcnow
 
 STATES = [
     "harvested", "classified", "shortlisted", "analyzed", "discussing", "plan_approved",
-    "drafting", "pr_open", "merged", "closed", "dismissed", "stale",
+    "drafting", "pr_open", "in_review", "merged", "closed", "dismissed", "stale",
 ]
 TERMINAL = {"merged", "closed", "dismissed", "stale"}
+
+# Plain labels for the UI; the state names stay machine names in the database.
+LABELS = {
+    "harvested": "found", "classified": "classified", "shortlisted": "top picks", "analyzed": "brief ready",
+    "discussing": "working on", "plan_approved": "plan agreed", "drafting": "working on", "pr_open": "PR opened",
+    "in_review": "progressing", "merged": "accepted", "closed": "closed", "dismissed": "dismissed", "stale": "taken",
+}
+# Board columns, in order, and which states land in each.
+BOARD_COLUMNS = {
+    "analyzed": "Picked", "discussing": "Working on", "plan_approved": "Working on", "drafting": "Working on",
+    "pr_open": "PR opened", "in_review": "Progressing", "merged": "Accepted",
+}
+BOARD_ORDER = ["Picked", "Working on", "PR opened", "Progressing", "Accepted"]
+# The user may move a card to any of these from the board; the state machine below enforces the edges.
+BOARD_TARGETS = {"Picked": "analyzed", "Working on": "discussing", "PR opened": "pr_open", "Progressing": "in_review", "Accepted": "merged"}
 
 # (from, to) -> set of actor kinds allowed. Actor "agent:<id>" matches "agent".
 EDGES: dict[tuple[str, str], set[str]] = {
@@ -22,6 +37,18 @@ EDGES: dict[tuple[str, str], set[str]] = {
     ("drafting", "pr_open"): {"user"},
     ("pr_open", "merged"): {"harvester", "user"},
     ("pr_open", "closed"): {"harvester", "user"},
+    # Board moves: the user drives these by hand; GitHub state still closes the loop.
+    ("shortlisted", "discussing"): {"user"},
+    ("classified", "discussing"): {"user"},
+    ("analyzed", "pr_open"): {"user"},
+    ("discussing", "pr_open"): {"user"},
+    ("plan_approved", "pr_open"): {"user"},
+    ("discussing", "analyzed"): {"user"},
+    ("plan_approved", "discussing"): {"user"},
+    ("pr_open", "in_review"): {"user"},
+    ("in_review", "pr_open"): {"user"},
+    ("in_review", "merged"): {"harvester", "user"},
+    ("in_review", "closed"): {"harvester", "user"},
 }
 for _s in STATES:
     if _s not in TERMINAL:

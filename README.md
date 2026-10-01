@@ -45,6 +45,26 @@ instructions; it may read, list and search files and nothing else. Events stream
 arrive. Caps: `analysis_daily_cap` (30 runs per UTC day), `analysis_timeout_s` (600), two attempts per issue.
 `scout run` analyzes after scoring, so the hourly timer keeps briefs flowing under the cap.
 
+## Dashboard (Stage 3)
+
+```bash
+./install_service.sh        # builds web/dist, installs the timer and the dashboard service
+uv run scout open           # http://127.0.0.1:8765
+```
+
+Three pages. **Queue**: filter chips for category and state, score breakdown on hover, row links to the
+issue. **Issue**: the brief, classification and score, the issue body and history, a chat thread with an
+agent that already knows the issue and brief and can read the clone, and the actions Discuss (`analyzed ->
+discussing`), Approve plan (`discussing -> plan_approved`, stores the agreed plan text), Dismiss. **Agents**:
+recent runs with tokens and errors; selecting a running run follows its events live.
+
+Chat is one Antigravity conversation per issue (`chat_model`, default `claude-sonnet-4-6`), resumed by ID on
+every turn. Nothing on the dashboard writes to GitHub.
+
+Dev loop: `uv run scout serve` in one terminal, `cd web && npm run dev` in another (proxies `/api`),
+`npm test` for the Vitest suite. Services: `oss-scout-run.timer` (hourly pipeline) and `oss-scout.service`
+(the API); `journalctl --user -u oss-scout -n 50` for logs.
+
 ## Config
 
 `scout.yaml` overrides defaults in `src/oss_scout/config.py`. The keys you will actually tune:

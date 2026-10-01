@@ -21,7 +21,7 @@ test('shows brief and the Discuss action when analyzed; discuss then chat', asyn
   const discuss = vi.spyOn(api, 'postDiscuss').mockResolvedValue({ state: 'discussing' })
   vi.spyOn(api, 'postMessage').mockResolvedValue({ user: { id: 1, role: 'user', content: 'hi', at: 'x' }, assistant: { id: 2, role: 'assistant', content: 'Hello back', at: 'x' } })
   mount()
-  await waitFor(() => expect(screen.getByText('Fix the thing')).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByText(/Fix the thing/)).toBeInTheDocument())
   expect(screen.getByText('core.py')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /discuss/i }))
   expect(discuss).toHaveBeenCalledWith('A')

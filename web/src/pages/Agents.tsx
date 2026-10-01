@@ -56,13 +56,13 @@ export function Agents({ pollMs = 2000 }: { pollMs?: number }) {
   const sum = (k: 'input_tokens' | 'output_tokens') => todays.reduce((a, r) => a + (r[k] || 0), 0)
   return (
     <div>
-      <p className="muted">Today: {todays.length} runs, {sum('input_tokens').toLocaleString()} in / {sum('output_tokens').toLocaleString()} out tokens.</p>
+      <p className="muted">Today: {todays.length} runs, {sum('input_tokens').toLocaleString()} tokens in, {sum('output_tokens').toLocaleString()} out.</p>
       <div className="runs">
         <div className="runlist">
           {runs.length === 0 && <p className="muted">No runs yet. Run <code>scout analyze</code>.</p>}
           {runs.map(r => (
             <div key={r.id} className={sel === r.id ? 'sel' : ''} onClick={() => setSel(r.id)}>
-              <span className={`state ${r.status}`}>{r.status}</span> <strong>{r.repo}#{r.number}</strong> <span className="muted">{r.model} · {(r.duration_s || 0).toFixed(0)}s · in {r.input_tokens || 0} / out {r.output_tokens || 0}</span>
+              <span className={`tag state ${r.status}`}>{r.status}</span> <strong>{r.repo}#{r.number}</strong> <span className="muted">{(r.duration_s || 0).toFixed(0)}s, {r.input_tokens || 0} in, {r.output_tokens || 0} out, {r.model}</span>
               {r.error && <div className="error">{r.error}</div>}
             </div>
           ))}

@@ -5,6 +5,7 @@ import type { IssueDetail, Message } from '../types'
 import { BriefCard } from '../components/BriefCard'
 import { Chat } from '../components/Chat'
 import { ScoreBadge } from '../components/ScoreBadge'
+import { catLabel, label, stars } from '../labels'
 
 const TERMINAL = ['dismissed', 'stale', 'merged', 'closed']
 
@@ -36,10 +37,12 @@ export function Issue() {
       <header>
         <h2><a href={d.issue.url} target="_blank" rel="noreferrer">{d.issue.repo}#{d.issue.number}</a> {d.issue.title}</h2>
         <div className="meta">
-          <span className={`state ${state}`}>{state}</span>
+          <span className={`tag state ${state}`}>{label(state)}</span>
           {d.score && <ScoreBadge total={d.score.total} breakdown={d.score.breakdown} />}
-          <span>{d.repo.stars}★ {d.repo.language}</span>
-          {Object.entries(d.classification).map(([q, a]) => <span key={q} className="tag">{q}: {a.choice}</span>)}
+          <span className="facts">{stars(d.repo.stars)}★ {d.repo.language}</span>
+          {d.classification.category && <span className="tag cat">{catLabel(d.classification.category.choice)}</span>}
+          {d.classification.kind && <span className="tag">{d.classification.kind.choice}</span>}
+          {d.classification.difficulty && <span className="tag">{d.classification.difficulty.choice}</span>}
         </div>
         <div className="actions">
           {state === 'analyzed' && <button onClick={act(() => api.postDiscuss(id))}>Discuss</button>}
@@ -76,7 +79,7 @@ export function Issue() {
           <h3>Brief</h3>
           {d.brief ? <BriefCard brief={d.brief} /> : <p className="muted">No brief yet. Runs so far: {d.runs.length}.</p>}
           <details><summary>Issue body</summary><pre className="body">{d.issue.body}</pre></details>
-          <details><summary>History</summary><ul>{d.transitions.map((t, i) => <li key={i}>{t.at} {t.from_state} → {t.to_state} ({t.actor}) {t.note}</li>)}</ul></details>
+          <details><summary>History</summary><ul>{d.transitions.map((t, i) => <li key={i}>{t.at.slice(0, 16).replace('T', ' ')}: {label(t.from_state)} to {label(t.to_state)} by {t.actor}{t.note ? `, ${t.note}` : ''}</li>)}</ul></details>
         </div>
         <div>
           <h3>Discussion</h3>

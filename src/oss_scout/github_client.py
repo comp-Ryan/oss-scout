@@ -177,12 +177,23 @@ class GitHubClient:
     CLOSING_PR_QUERY = """
     query($id:ID!){ node(id:$id){ ... on Issue {
       timelineItems(itemTypes:[CROSS_REFERENCED_EVENT],last:20){ nodes{ ... on CrossReferencedEvent {
-        willCloseTarget source{ ... on PullRequest { number state } } } } } } } }"""
+        willCloseTarget source{ ... on PullRequest { number state title url } } } } } } } }"""
 
-    def has_closing_pr(self, issue_node_id: str) -> bool:
+    def related_prs(self, issue_node_id: str) -> list[dict]:
+        """Every PR cross-referenced from the issue's timeline, open or closed."""
         data = self.graphql(self.CLOSING_PR_QUERY, {"id": issue_node_id})
         nodes = (data.get("node") or {}).get("timelineItems", {}).get("nodes", [])
-        return any(n.get("willCloseTarget") and (n.get("source") or {}).get("state") == "OPEN" for n in nodes)
+        out = []
+        for n in nodes:
+            src = n.get("source") or {}
+            if "number" not in src:
+                continue
+            out.append({"number": src["number"], "state": src.get("state"), "title": src.get("title"),
+                        "url": src.get("url"), "will_close": bool(n.get("willCloseTarget"))})
+        return out
+
+    def has_closing_pr(self, issue_node_id: str) -> bool:
+        return any(p["will_close"] and p["state"] == "OPEN" for p in self.related_prs(issue_node_id))
 
     def contributing_text(self, owner: str, name: str) -> str | None:
         for path in ("CONTRIBUTING.md", ".github/CONTRIBUTING.md"):

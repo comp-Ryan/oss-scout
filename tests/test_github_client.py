@@ -168,3 +168,14 @@ def test_search_requests_use_their_own_slower_interval():
     c = GitHubClient("tok", sleep=sleep, opener=opener, now=lambda: clock["t"], min_interval=0.25, search_min_interval=2.0)
     list(c.search_issues("a", pages=1, per_page=1)); list(c.search_repos("b", pages=1, per_page=1)); c.rest("x")
     assert slept == [2.0, 0.25]  # search waits the search gap; a plain request only the ordinary gap
+
+def test_related_prs_returns_every_cross_referenced_pr():
+    data = {"data": {"node": {"timelineItems": {"nodes": [
+        {"willCloseTarget": True, "source": {"number": 2, "state": "OPEN", "title": "Fix it", "url": "u2"}},
+        {"willCloseTarget": False, "source": {"number": 5, "state": "MERGED", "title": "Related", "url": "u5"}},
+        {"willCloseTarget": False, "source": {}},
+    ]}}}}
+    c, _, _ = make_client([FakeResp(data)])
+    prs = c.related_prs("I_x")
+    assert prs == [{"number": 2, "state": "OPEN", "title": "Fix it", "url": "u2", "will_close": True},
+                   {"number": 5, "state": "MERGED", "title": "Related", "url": "u5", "will_close": False}]

@@ -1,0 +1,27 @@
+/* OSS Scout design tokens. One signal color (amber) for scores and primary actions; everything else stays quiet.
+   Categories get a hue each, used only as a thin stripe or dot, never as a filled block. */
+@theme {
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-bg: #121417;
+  --color-surface: #191c21;
+  --color-raised: #20242b;
+  --color-line: #2b3039;
+  --color-ink: #e7e9ee;
+  --color-muted: #8f96a3;
+  --color-faint: #5d6472;
+  --color-signal: #e8b04b;
+  --color-signal-ink: #1a1405;
+  --color-teal: #4fb3a9;
+  --color-violet: #a78bfa;
+  --color-blue: #6ea8fe;
+  --color-green: #6cc27a;
+  --color-pink: #ec8db1;
+  --color-orange: #f08a4b;
+  --color-bad: #ef6b73;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}

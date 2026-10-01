@@ -8,5 +8,6 @@ export type Brief = { summary: string; likely_cause: string; approach: string; f
 export type IssueDetail = { issue: any; repo: any; classification: Record<string, { choice: string; confidence: number | null }>;
   score: { total: number; breakdown: Record<string, number> } | null; brief: Brief | null; runs: Run[];
   transitions: { from_state: string; to_state: string; actor: string; note: string; at: string }[];
-  thread: { conversation_id: string | null; plan: string | null } | null; messages: Message[] }
+  thread: { conversation_id: string | null; plan: string | null } | null; messages: Message[]; draft?: Draft | null }
+export type Draft = { worktree: string; branch: string; brief_path: string; test_cmd: string; pr_url: string | null; last_error: string | null }
 export type Settings = { weights: Record<string, number>; category_values: Record<string, number> }

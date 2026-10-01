@@ -1,4 +1,4 @@
-import type { IssueDetail, Message, QueueRow, Run, RunEvent, Settings } from './types'
+import type { Draft, IssueDetail, Message, QueueRow, Run, RunEvent, Settings } from './types'
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...init })
@@ -20,3 +20,6 @@ export const getRuns = () => call<Run[]>('/api/runs')
 export const getEvents = (runId: number, after: number) => call<{ status: string; events: RunEvent[] }>(`/api/runs/${runId}/events?after=${after}`)
 export const getSettings = () => call<Settings>('/api/settings')
 export const putSettings = (s: Partial<Settings>) => call<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(s) })
+export const postPrep = (id: string) => call<Draft>(`/api/issues/${id}/prep`, { method: 'POST' })
+export const postLaunch = (id: string) => call<{ launched: boolean; command: string; cwd: string }>(`/api/issues/${id}/launch`, { method: 'POST' })
+export const postSubmit = (id: string, title: string, body: string) => call<{ pr_url: string; tests: string }>(`/api/issues/${id}/submit`, { method: 'POST', body: JSON.stringify({ title, body }) })

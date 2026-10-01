@@ -172,7 +172,7 @@ term is a 0 to 1 value times its weight. Default weights in `scout.yaml`:
 | bounty | 1.0 if `has_bounty` | 0.5 |
 | ai policy | 0 if `none`, minus 0.5 if `discouraged` | 1.0 |
 
-After each scoring pass, the top `shortlist_count` (default 20) `classified` issues whose total is at least `shortlist_floor` (default 4.0 of a 14.0 maximum) move to `shortlisted`; the rest stay `classified` and compete again next pass.
+After each scoring pass, the top `shortlist_count` (default 20) `classified` issues whose total is at least `shortlist_floor` (default 4.0 of a 13.5 maximum, since the AI-policy term only subtracts) move to `shortlisted`; the rest stay `classified` and compete again next pass.
 The breakdown is stored so the frontend shows why an item ranks where it does. Changing weights re-scores
 everything on the next run; old scores stay in the table with their `weights_hash`.
 

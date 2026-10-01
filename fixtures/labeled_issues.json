@@ -1,0 +1,1442 @@
+[
+ {
+  "id": "I_kwDOIPDwls8AAAABSFsOOg",
+  "issue": {
+   "repo": "langchain-ai/langchain",
+   "number": 40668,
+   "title": "Cache writes are counted twice for priority and flex",
+   "body": "### Submission checklist\n\n- [x] This is a bug, not a usage question.\n- [x] I added a clear and descriptive title that summarizes this issue.\n- [x] I used the GitHub search to find a similar question and didn't find it.\n- [x] I am sure that this is a bug in LangChain rather than my code.\n- [x] The bug is not resolved by updating to the latest stable version of LangChain (or the specific integration package).\n- [x] This is not related to the langchain-community package.\n- [x] I posted a self-contained, minimal, reproducible example. A maintainer can copy it and run it AS IS.\n\n### Package (Required)\n\n- [ ] langchain\n- [x] langchain-openai\n- [ ] langchain-anthropic\n- [ ] langchain-classic\n- [ ] langchain-core\n- [ ] langchain-model-profiles\n- [ ] langchain-tests\n- [ ] langchain-text-splitters\n- [ ] langchain-chroma\n- [ ] langchain-deepseek\n- [ ] langchain-exa\n- [ ] langchain-fireworks\n- [ ] langchain-groq\n- [ ] langchain-huggingface\n- [ ] langchain-mistralai\n- [ ] langchain-nomic\n- [ ] langchain-ollama\n- [ ] langchain-openrouter\n- [ ] langchain-perplexity\n- [ ] langchain-qdrant\n- [ ] langchain-typesafe\n- [ ] langchain-xai\n- [ ] Other / not sure / general\n\n### Related Issues / PRs\n\nOriginal report: https://github.com/langchain-ai/langchain/issues/40666\nClosed automatically because I submitted it through the CLI. Resubmitting through the web form.\n\nProposed fix: https://github.com/langchain-ai/langchain/pull/40667\nClosed automatically pending issue assignment.\n\nOriginal implementation: https://github.com/langchain-ai/langchain/pull/38762\nAdded the cache-write accounting and overlap tests.\n\n### Reproduction Steps / Example Code (Python)\n\n```python\nfrom langchain_openai.chat_models.base import _create_usage_metadata_responses\n\nusage = {\n    \"input_tokens\": 2304,\n    \"input_tokens_details\": {\"cached_tokens\": 256, \"cache_write_tokens\": 1024},\n    \"output_tokens\": 50,\n    \"total_tokens\": 2354,\n}\ndetails = _create_usage_metadata_responses(usage, \"priority\")[\"input_token_details\"]\nprint(details)\n# Actual:   {'priority_cache_read': 256, 'priority_cache_creation': 1024, 'priority': 2048}\n# Expected: {'priority_cache_read': 256, 'priority_cache_creation': 1024, 'priority': 1024}\n```\n\n### Error Message and Stack Trace (if applicable)\n\n```shell\n\n```\n\n### Description\n\nIn langchain-openai 1.6.2, cache-write tokens are counted in both the ordinary priority/flex input bucket and the separate cache-creation bucket, inflating cost estimates.\n\nThe example should report 1024 ordinary input tokens: 2304 total minus 256 cache reads minus 1024 cache writes. It reports 2048 because only cache reads are subtracted. No API key is needed to reproduce it.\n\nOpenAI's [documented cost formula](https://developers.openai.com/api/docs/guides/prompt-caching#calculate-input-cost) subtracts both reads and writes. The overlap assumption behind #38762 conflicts with that formula.\n\nBoth the Responses and Chat Completions converters have the same calculation. I'd like to fix both and update the existing tests for priority and flex. Could a maintainer approve the approach and assign this to me?\n\n### System Info\n\nSystem Information\n------------------\n> OS: Darwin\n> OS Version: Darwin Kernel Version 24.6.0: Tue Jul 21 20:45:23 PDT 2026; root:xnu-11417.140.69.711.44~1/RELEASE_ARM64_T6020\n> Python Version: 3.12.14 (main, Aug 12 2026, 13:57:54) [Clang 17.0.0 (clang-1700.6.4.2)]\n\nPackage Information\n-------------------\n> langchain_core: 1.6.3\n> langsmith: 0.13.0\n> langchain_openai: 1.6.2\n> langchain_protocol: 0.0.19\n\nOptional packages not installed\n-------------------------------\n> deepagents\n> deepagents-cli\n\nOther Dependencies\n------------------\n> anyio: 4.15.1\n> certifi: 2026.7.22\n> distro: 1.9.0\n> httpx: 0.28.1\n> httpx2: 2.13.0\n> jsonpatch: 1.33\n> openai: 3.16.2\n> orjson: 3.12.0\n> packaging: 26.3\n> pydantic: 2.13.5\n> pyyaml: 6.0.3\n> requests: 2.34.2\n> requests-toolbelt: 1.0.0\n> sniffio: 1.3.1\n> tenacity: 9.1.4\n> tiktoken: 0.14.0\n> typing-extensions: 4.16.0\n> uuid-utils: 0.17.1\n> websockets: 17.1\n> xxhash: 4.0.1\n> zstandard: 0.25.0\n\n### Social handles (optional)\n\nTwitter: @antonioalegria\nLinkedIn: https://www.linkedin.com/in/antonioalegria",
+   "labels": "[\"bug\", \"openai\", \"external\"]",
+   "comments": 3,
+   "url": "https://github.com/langchain-ai/langchain/issues/40668"
+  },
+  "repo": {
+   "stars": 147345,
+   "language": "Python",
+   "description": "The agent engineering platform."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "bug",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOKLLDQ88AAAABTB6O2Q",
+  "issue": {
+   "repo": "jup-ag/jupiter-swap-api-client",
+   "number": 65,
+   "title": "Quotes through Manifest legs overstate outAmount by the Token-2022 transfer fee (reverts at tight slippage, misrouting)",
+   "body": "## Summary\n\nFor Token-2022 mints with an active transfer fee, quotes whose route includes a **Manifest** leg overstate `outAmount` by the transfer fee. This affects both `swap/v1/quote` and `swap/v2/build`.\n\nThe root cause is Manifest's Jupiter adapter: its `quote()` ignores `TransferFeeConfig`. Reported upstream: https://github.com/Bonasa-Tech/manifest/issues/735\n\nIt matters on the Jupiter side for three reasons:\n\n1. **Swaps revert at tight slippage.** Swaps through these routes at `slippageBps` at or below the fee revert with `SlippageToleranceExceeded` (`0x1771`), in both directions.\n2. **The router picks worse venues.** Because the Manifest quote is inflated, the router selects Manifest even when another venue delivers more. Measured on 2026-09-24 with $125 USDC buys, comparing delivery on the default route against the same trade with `excludeDexes=Manifest`, about 8 minutes apart:\n\n   | Mint | Delivery on default route vs non-Manifest route |\n   |---|---|\n   | FIGUREAI | −0.85% |\n   | POLYMARKET | −0.38% |\n   | ANDURIL | −0.25% |\n   | KALSHI | −0.10% |\n\n3. **Integrators receive less than quoted.** Anyone who trusts `outAmount` or `otherAmountThreshold` receives about 1% less than quoted on 100 bps mints.\n\n## Evidence\n\n**Mint config.** PreStocks mints, e.g. `PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd`, have `transferFeeConfig.newerTransferFee = 100 bps` from epoch 1039.\n\n**Method.** Build with `GET https://api.jup.ag/swap/v2/build?inputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&outputMint=<mint>&amount=125000000&taker=H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS&slippageBps=300`, assemble a v0 transaction, `simulateTransaction` (`sigVerify:false`, `replaceRecentBlockhash:true`), and read the taker's output ATA.\n\n| Output mint | Route | Slot | `outAmount` | received | diff |\n|---|---|---|---|---|---|\n| FIGUREAI | Manifest | 450095131 | 698,977,749 | 691,987,971 | −1.000% |\n| KALSHI | Manifest | 450095141 | 141,598,188 | 140,182,206 | −1.000% |\n| NEURALINK | Manifest | 450095152 | 282,126,113 | 279,304,851 | −1.000% |\n| OPENAI | Manifest | 450095163 | 62,632,541 | 61,992,820 | −1.021% |\n| POLYMARKET | Manifest | 450095176 | 842,215,205 | 833,142,946 | −1.077% |\n\nWith `excludeDexes=Manifest`, all eight PreStocks mints delivered within ±0.074% of quote (slots 450076568–450076641).\n\n**Reverts:** lite-api v1, `dexes=Manifest`, `slippageBps=50`, ANTHROPIC `Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw`:\n\n- buy at slot 450054639: `Custom(6001)`\n- sell at slot 450054678: `Custom(6001)`\n- the same trades on Meteora DLMM pass (slots 450054671, 450054684)\n\n## Suggestion\n\nUntil the adapter is fixed, the router could treat a Manifest leg that touches a `TransferFeeConfig` mint as net of the epoch fee, or exclude such legs.\n",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/jup-ag/jupiter-swap-api-client/issues/65"
+  },
+  "repo": {
+   "stars": 200,
+   "language": "Rust",
+   "description": ""
+  },
+  "labels": {
+   "category": "prediction_markets_finance",
+   "kind": "bug",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOKHF8zM655CcU",
+  "issue": {
+   "repo": "marimo-team/marimo",
+   "number": 5196,
+   "title": "Auto-run code suggested by AI",
+   "body": "### Description\n\nWhen I currently use AI completion, the workflow is as follows:\n\n1. Open AI completion\n2. Enter prompt\n3. Accept suggestion\n4. Run cell\n\n![Image](https://github.com/user-attachments/assets/fedcb16e-2c5d-49b2-afca-041a4ec7a470)\n\nWhen I use Marimo, I often only care about the output. If the output is correct, the code is correct, since it does not need to generalize to arbitrary input, but is often limited to a single dataset.\n\nWith AI completion, I need to accept the suggested code change before I can see if it produces the correct output. This poses two problems. First, it is an extra step, breaking flow. Second, it makes it difficult to iterate on the code. If the output is not as expected, I need to start the process over, i.e. open AI completion and enter a _new_ prompt, since the old prompt is gone.\n\n### Suggested solution\n\nAuto-running the suggested code, while keeping the AI completion open, could improve this. A similar situation arose today in Cursor – I was using the Agent to help me produce a Markdown file. I had three columns open, one with the source, one with the Markdown preview, and one with the chat sidebar:\n\n![Image](https://github.com/user-attachments/assets/405daa4e-64e4-4d25-9369-4b959604a2f2)\n\nI did not look at the source at all – since the rendered Markdown is what I cared about. I think the same is (often) the case in Marimo.\n\n### Will you submit a PR?\n\n- [ ] Yes\n\n### Alternative\n\n_No response_\n\n### Additional context\n\nContinued from https://github.com/marimo-team/marimo/discussions/5037",
+   "labels": "[\"enhancement\", \"good first issue\", \"good first issue (typescript)\", \"needs discussion\"]",
+   "comments": 11,
+   "url": "https://github.com/marimo-team/marimo/issues/5196"
+  },
+  "repo": {
+   "stars": 22965,
+   "language": "Python",
+   "description": "A reactive notebook for Python — run reproducible experiments, query with SQL, execute as a script, deploy as an app, and version with git. Stored as pure Python. All in a modern, AI-native editor."
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "feature",
+   "difficulty": "medium",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOQBSNd88AAAABRchZiA",
+  "issue": {
+   "repo": "ccplugins/awesome-claude-code-plugins",
+   "number": 493,
+   "title": "Add ContHunt remote MCP server",
+   "body": "## ContHunt\n\nRemote MCP for discovering and researching viral TikTok, Instagram Reels, and YouTube Shorts.\n\n- Website: https://conthunt.app\n- MCP endpoint (Streamable HTTP, OAuth): https://mcp.conthunt.app/\n- GitHub: https://github.com/Synthenova/conthunt\n- Registry name: io.github.synthenova/conthunt\n- Contact: nirmalvelu2000@gmail.com\n\nPlease list ContHunt if this catalog accepts remote MCP servers.",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/ccplugins/awesome-claude-code-plugins/issues/493"
+  },
+  "repo": {
+   "stars": 957,
+   "language": "JavaScript",
+   "description": "Awesome Claude Code plugins — a curated list of slash commands, subagents, MCP servers, and hooks for Claude Code"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOPt-O9s8AAAABURIl-w",
+  "issue": {
+   "repo": "cuga-project/cuga-agent",
+   "number": 854,
+   "title": "docs(mcp): use Python 3.13 in the MCP-server setup, matching the main README",
+   "body": "> **Time:** ~5 min · **AI API key:** not needed · **Setup:** none (GitHub web editor is fine)\n\n## Background in 30 seconds\n**cuga-apps** is a gallery of about 35 small demo web apps built on CUGA, IBM's open-source AI-agent framework. Each app lives in its own folder under `cuga-apps/apps/`. This issue is a small text fix: no AI knowledge needed. The shared tool servers have their own README with setup steps.\n\n## What's wrong\nThe main README asks for **Python 3.13**, but the MCP-server README creates its virtualenv with `python3.11`. Someone who installed only 3.13, as told, hits `command not found`.\n\n## See it yourself\n- [README.md line 45](https://github.com/cuga-project/cuga-apps/blob/51b087ee7a34f8f556c350eac0b24fc6901ebed9/README.md?plain=1#L45): \"Prerequisite — Python 3.13.\"\n- [cuga-apps/mcp_servers/README.md line 54](https://github.com/cuga-project/cuga-apps/blob/51b087ee7a34f8f556c350eac0b24fc6901ebed9/cuga-apps/mcp_servers/README.md?plain=1#L54): `python3.11 -m venv .venv`\n\n## What to change\nIn [`cuga-apps/mcp_servers/README.md` line 54](https://github.com/cuga-project/cuga-apps/blob/51b087ee7a34f8f556c350eac0b24fc6901ebed9/cuga-apps/mcp_servers/README.md?plain=1#L54), change `python3.11` to `python3.13`.\n\n## How to check you're done\n```bash\ngrep -n 'python3.11' cuga-apps/mcp_servers/README.md   # → no output\n```\n\n## PR checklist\n- [ ] Title: `docs(mcp): align MCP server setup with Python 3.13`\n- [ ] `git commit -s` (sign-off)\n- [ ] Only `cuga-apps/mcp_servers/README.md` (1 line) changed\n\n---\n\n<details>\n<summary><b>New to CUGA? What it is, how to set up, and how to submit (2-minute read)</b></summary>\n\n<br>\n\n**What is CUGA?** An open-source framework from IBM Research for building AI agents. You give it *tools* (ordinary Python functions or small web services) and instructions, and it uses a large language model to plan and carry out multi-step tasks with them. This repository, `cuga-apps`, is a gallery of about 35 small demo web apps built on CUGA, plus shared **MCP servers**: small services that each offer a bundle of tools, such as web search, Wikipedia lookup or text chunking. The code lives in a `cuga-apps/` sub-folder of the repo. You don't need to understand CUGA internals to do this issue.\n\n**Set up** (only if this issue says you need to; needs Python 3.13 and [uv](https://docs.astral.sh/uv/getting-started/installation/)):\n\n```bash\ngit clone https://github.com/<your-username>/cuga-apps && cd cuga-apps/cuga-apps   # clone your fork\nuv venv --python 3.13 .venv && source .venv/bin/activate     # CUGA doesn't support Python 3.14 yet\nuv pip install \"mcp>=1.0,<2\" httpx pydantic pytest            # enough for anything under mcp_servers/\n```\n\nKeep the `mcp<2` pin: a plain `pip install mcp` currently installs version 2, which the tool servers don't support yet.\n\n**Submit your PR**\n\n1. Comment \"I'd like to take this\" on this issue, so nobody else starts it.\n2. Fork the repo and create a branch: `git checkout -b fix/<short-topic>` (or `docs/…`, `test/…`, `feat/…`).\n3. Commit **with sign-off**: `git commit -s -m \"<the PR title suggested above>\"`. If you forgot, run `git commit --amend --no-edit --signoff`, then `git push --force-with-lease`.\n4. Run `python -m py_compile` on every Python file you touched.\n5. Open the PR using the suggested title. In the description, write `Closes #<this issue's number>` and paste the output of **How to check you're done**.\n\nStuck for more than 15 minutes? Ask in a comment on this issue; that's what it's for.\n\n</details>\n",
+   "labels": "[\"documentation\", \"good first issue\"]",
+   "comments": 1,
+   "url": "https://github.com/cuga-project/cuga-agent/issues/854"
+  },
+  "repo": {
+   "stars": 882,
+   "language": "Python",
+   "description": "CUGA is an open-source generalist agent harness for the enterprise, supporting complex task execution on web and APIs, OpenAPI/MCP integrations, composable architecture, reasoning modes, and policy-aware features."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOS3TU6c8AAAABUNQw2g",
+  "issue": {
+   "repo": "reticlehq/reticle",
+   "number": 1273,
+   "title": "`reticle_viewport` on your own tab should suggest a lease",
+   "body": "On an SDK-only tab (the one you opened yourself), `reticle_viewport` answers `applied: false, no-cdp-provider`. That's inherent: a page can't resize its own window. But the refusal doesn't say what does work, which is a lease (`server/src/portal/input/viewport-tools.ts` already uses the lease path when there is one). The tool is also off the default surface, so people assume it doesn't exist.\n\n### Done when\n\nThe `no-cdp-provider` refusal names the lease route (`reticle_lease { action: \"acquire\", url }`, then resize).\n",
+   "labels": "[\"enhancement\", \"good first issue\", \"agent-reported\", \"area/server\", \"P2\", \"hacktoberfest\"]",
+   "comments": 0,
+   "url": "https://github.com/reticlehq/reticle/issues/1273"
+  },
+  "repo": {
+   "stars": 1024,
+   "language": "TypeScript",
+   "description": "AI agents can generate code, but still struggle to understand what they build. Reticle brings Jev-style machine-native runtime perception to web & desktop applications."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOLkKqys8AAAABS0d6iA",
+  "issue": {
+   "repo": "BasedHardware/omi",
+   "number": 17812,
+   "title": "[Bounty proposal] docs(python-cli): Faroese (fo) AI agent quickstart guide ($25 proposed)",
+   "body": "### Summary\nAdded the Faroese (`fo`) localization for the LLM/Agent quickstart guide in `sdks/python-cli/examples/agent_quickstart.fo.md`.\n\n### Scope of Work\n- Complete Faroese translation of `agent_quickstart.md` for agent-driven workflows with `omi-cli`.\n- Preserved identical code blocks, command arguments, and structural headers.\n- Registered the new guide in `sdks/python-cli/examples/README.md`.\n\n### Pull Request\nAssociated PR: #17824\n\nProposing standard $25 documentation bounty via Algora.",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/BasedHardware/omi/issues/17812"
+  },
+  "repo": {
+   "stars": 13621,
+   "language": "Python",
+   "description": "AI that sees your screen, listens to your conversations and tells you what to do"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOFrlHd88AAAABUO2ncg",
+  "issue": {
+   "repo": "decompme/decomp.me",
+   "number": 2118,
+   "title": "download.py fails to consider errors failures",
+   "body": "from [this](https://github.com/decompme/decomp.me/actions/runs/36772845617/job/110083311142)\n```\n2026-09-30 20:30:25.851 INFO get_compiler_raw mwcc_20_72 (nds_arm9) was successfully downloaded into /cromper/compilers/nds_arm9/mwcc_20_72\n2026-09-30 20:30:25.852 INFO get_compiler_raw Processing mwcc_30_123 (nds_arm9)\n2026-09-30 20:30:25.884 ERROR run Exception thrown while processing item: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))\n2026-09-30 20:30:25.884 INFO get_compiler_raw Processing mwcc_30_126 (nds_arm9)\n2026-09-30 20:30:25.939 INFO get_compiler_raw mwcc_20_79 (nds_arm9) was successfully downloaded into /cromper/compilers/nds_arm9/mwcc_20_79\n...\n2026-09-30 20:30:59.122 INFO main Updated 213 / 213 compiler(s) in 42.77 second(s)\n```\nFailed downloads shouldn't count as updated compilers, and they should probably make the download script return a non-zero value\n",
+   "labels": "[\"bug\", \"good first issue\"]",
+   "comments": 0,
+   "url": "https://github.com/decompme/decomp.me/issues/2118"
+  },
+  "repo": {
+   "stars": 615,
+   "language": "TypeScript",
+   "description": "Collaborative decompilation and reverse engineering website"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "bug",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOS0Pl0M8AAAABUSwLGQ",
+  "issue": {
+   "repo": "chubbyguan/chubbyskills",
+   "number": 14,
+   "title": "[Good first issue] 为 fixtures/golden 补充 X Article 预览场景的 golden 输出样例",
+   "body": "## 背景\n\n#12 给 x-ingest 加了 Article（长文章）类型的预览告警与 `--cookies` 全文抓取，但 `fixtures/golden/` 还没有 Article 场景的黄金输出样例。\n\n## 任务\n\n1. 用 `x-ingest/scripts/fetch_tweet.py` 的解析函数构造一条 Article 类型的 syndication 响应 fixture（含 `article.preview_text` / `cover_media` / `rest_id`）\n2. 生成对应的 golden Markdown 输出，放入 `fixtures/golden/`\n3. 确认 `python3 tools/golden_outputs.py examples/outputs` 与相关测试通过\n\n## 参考\n\n- 解析逻辑：`x-ingest/scripts/fetch_tweet.py` 的 `parse_tweet()`\n- 现有测试样例：`tests/test_x_ingest.py` 的 `XArticleTest`\n- golden 机制：`tools/golden_outputs.py`、`fixtures/golden/`\n\n适合第一次贡献：改动范围小，不涉及网络请求。",
+   "labels": "[\"documentation\", \"good first issue\"]",
+   "comments": 0,
+   "url": "https://github.com/chubbyguan/chubbyskills/issues/14"
+  },
+  "repo": {
+   "stars": 1161,
+   "language": "Python",
+   "description": "把中文全渠道内容（抖音 / B站 / 小红书 / 公众号 / X / 播客）采集进个人知识库的 14 个 AI Skill：图文存图、视频转文字稿、字幕优先免 GPU，附带知识库 MCP server。 ｜ Ingest Chinese content into your personal knowledge base — image/video routing, subtitle-first transcription, and a KB MCP server."
+  },
+  "labels": {
+   "category": "data_scraping",
+   "kind": "test",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDODhKIWM8AAAABPySfMA",
+  "issue": {
+   "repo": "backstage/backstage",
+   "number": 35522,
+   "title": "Snyk vulnerability [SNYK-JS-MINIMATCH-15353389]",
+   "body": "\n## Affecting Packages/Plugins\n\n* [@backstage/repo-tools](packages/repo-tools/package.json)\n\n## Overview\n[minimatch](https://www.npmjs.com/package/minimatch) is a minimal matching utility.\n\nAffected versions of this package are vulnerable to Inefficient Algorithmic Complexity via the `matchOne` function. An attacker can cause significant delays in processing and stall the event loop by supplying specially crafted glob patterns containing multiple non-adjacent GLOBSTAR segments.\n## Remediation\nUpgrade `minimatch` to version 3.1.3, 4.2.5, 5.1.8, 6.2.2, 7.4.8, 8.0.6, 9.0.7, 10.2.3 or higher.\n## References\n- [GitHub Commit](https://github.com/isaacs/minimatch/commit/0bf499aa45f5059b56809cc3b75ff3eafeb8d748)\n\n",
+   "labels": "[\"snyk-vulnerability\", \"help wanted\"]",
+   "comments": 0,
+   "url": "https://github.com/backstage/backstage/issues/35522"
+  },
+  "repo": {
+   "stars": 34535,
+   "language": "TypeScript",
+   "description": "Backstage is an open framework for building developer portals"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "chore",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOOwsln88AAAABT_HJhw",
+  "issue": {
+   "repo": "lingdojo/kana-dojo",
+   "number": 31288,
+   "title": "[good first issue] 🥢 Add new Learner Mistake 1024 (good-first-issue)",
+   "body": "## 🟢 Good First Issue: Add Learner Mistake #102 — Beginner-Friendly Open Source Contribution\n\n![Time: <1 minute](https://img.shields.io/badge/Time-<1_minute-brightgreen) ![Difficulty: Beginner](https://img.shields.io/badge/Difficulty-Beginner-blue) ![No Code Required](https://img.shields.io/badge/No_Code-Required-orange)\n\n> 🟢 **No prerequisites needed!** You don't need to clone the repo, install anything, or write code.\n> This entire contribution can be done from your browser in under 60 seconds.\n\n**Labels:** good first issue, help wanted, hacktoberfest  \n**Language:** JSON (no coding required)  \n**Time:** < 1 minute  \n**Skill Level:** Absolute beginner  \n\n---\n## Add Common Japanese Learner Mistake\n\n**Category:** Community Contribution - Common Mistake  \n**Difficulty:** Easy (good first issue!)  \n**Estimated Time:** <1 min\n\n---\n\n### Your Task\n\nAdd this common learner mistake pair to help others avoid frequent Japanese errors!\n\n### The Common Mistake\n\n**Wrong:** 日本語が好きをです。\n\n**Correct:** 日本語が好きです。\n\n> **Why:** 好き takes が, not を. (Pattern set 6)\n\n### 📝 Instructions\n\n1. Star our repo ⭐\n2. Fork our repo 🍴\n3. Open [`community/content/japanese-common-mistakes.json`](../blob/main/community/content/japanese-common-mistakes.json) in your browser (click the link!)\n4. Scroll to the bottom of the file and paste the following common mistake object just before the closing `]`:\n\n```json\n{\n  \"wrong\": \"日本語が好きをです。\",\n  \"correct\": \"日本語が好きです。\",\n  \"explanation\": \"好き takes が, not を. (Pattern set 6)\"\n}\n```\n\n5. Add a comma after the previous last entry in the array (so the JSON stays valid)\n6. Save the file and commit the changes\n7. Submit a Pull Request with title: `content: add new common mistake`\n8. Link this issue using `Closes #<issue_number>`\n9. Wait for review!\n\n---\n\n### 🚀 Quick Info\n\n| | |\n|---|---|\n| **Difficulty** | Beginner / Easy |\n| **Time** | < 1 minute |\n| **Language** | TypeScript, JSON |\n| **Framework** | Next.js, React |\n| **Good for** | First-time contributors, Hacktoberfest |\n\n> **No coding experience required!** This is a simple JSON/data file edit — perfect for your first open source contribution. No setup is required. \n\n**Questions?** Comment below and we'll help! 🙌\n\n_This is a beginner-friendly, good first issue for first-time open source contributors. No coding experience needed — just edit a JSON file! See our [Beginner Contributing Guide](../blob/main/docs/CONTRIBUTING-BEGINNERS.md) for step-by-step instructions._",
+   "labels": "[\"help wanted\", \"good first issue\", \"hacktoberfest\", \"community\", \"low hanging fruit\", \"up-for-grabs\", \"first-timers-only\", \"good-first-issue\"]",
+   "comments": 1,
+   "url": "https://github.com/lingdojo/kana-dojo/issues/31288"
+  },
+  "repo": {
+   "stars": 3530,
+   "language": "TypeScript",
+   "description": "Aesthetic, minimalist platform for learning Japanese inspired by Duolingo and Monkeytype, built with Next.js and sponsored by Vercel. Beginner-friendly with plenty of good first issues - all contributions are welcome!"
+  },
+  "labels": {
+   "category": "other",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOBKnnxc71fUpc",
+  "issue": {
+   "repo": "super-productivity/super-productivity",
+   "number": 6932,
+   "title": "💡 Ended Working - Export to CSV",
+   "body": "### Problem Statement\n\nWhen exporting time data to a CSV file, the “Ended working” field shows the same timestamp for all tasks completed during the day.\nI believe this field should instead display the actual time each task was closed.\n\n### Possible Solution\n\nAs descibed\n\n### Describe alternatives you've considered\n\n_No response_\n\n### Additional context\n\n_No response_",
+   "labels": "[\"help wanted\"]",
+   "comments": 4,
+   "url": "https://github.com/super-productivity/super-productivity/issues/6932"
+  },
+  "repo": {
+   "stars": 22425,
+   "language": "TypeScript",
+   "description": "Super Productivity is an advanced todo list app with integrated Timeboxing and time tracking capabilities. It also comes with integrations for Jira, GitLab, GitHub and Open Project."
+  },
+  "labels": {
+   "category": "web_frontend",
+   "kind": "bug",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOOwsln88AAAABUEZ8hg",
+  "issue": {
+   "repo": "lingdojo/kana-dojo",
+   "number": 31318,
+   "title": "[good first issue] 🎎 Add new Dialect Entry 1188 (good-first-issue)",
+   "body": "## 🟢 Good First Issue: Add Dialect Entry #118 — Beginner-Friendly Open Source Contribution\n\n![Time: <1 minute](https://img.shields.io/badge/Time-<1_minute-brightgreen) ![Difficulty: Beginner](https://img.shields.io/badge/Difficulty-Beginner-blue) ![No Code Required](https://img.shields.io/badge/No_Code-Required-orange)\n\n> 🟢 **No prerequisites needed!** You don't need to clone the repo, install anything, or write code.\n> This entire contribution can be done from your browser in under 60 seconds.\n\n**Labels:** good first issue, help wanted, hacktoberfest  \n**Language:** JSON (no coding required)  \n**Time:** < 1 minute  \n**Skill Level:** Absolute beginner  \n\n---\n## Add New Regional Dialect Entry\n\n**Category:** Community Contribution - Regional Dialect  \n**Difficulty:** Easy (good first issue!)  \n**Estimated Time:** <1 min\n\n---\n\n### Your Task\n\nAdd this regional dialect phrase so learners can understand real-world Japanese variation!\n\n### The Dialect Entry\n\n| Dialect | Standard Japanese | English | Region |\n|---------|-------------------|---------|--------|\n| **にふぇーでーびる** | ありがとうございます | thank you | Okinawa |\n\n> **Note:** Okinawan gratitude expression. (Set 6)\n\n### 📝 Instructions\n\n1. Star our repo ⭐\n2. Fork our repo 🍴\n3. Open [`community/content/japanese-regional-dialects.json`](../blob/main/community/content/japanese-regional-dialects.json) in your browser (click the link!)\n4. Scroll to the bottom of the file and paste the following regional dialect object just before the closing `]`:\n\n```json\n{\n  \"dialect\": \"にふぇーでーびる\",\n  \"standardJapanese\": \"ありがとうございます\",\n  \"english\": \"thank you\",\n  \"region\": \"Okinawa\",\n  \"note\": \"Okinawan gratitude expression. (Set 6)\"\n}\n```\n\n5. Add a comma after the previous last entry in the array (so the JSON stays valid)\n6. Save the file and commit the changes\n7. Submit a Pull Request with title: `content: add new regional dialect entry`\n8. Link this issue using `Closes #<issue_number>`\n9. Wait for review!\n\n---\n\n### 🚀 Quick Info\n\n| | |\n|---|---|\n| **Difficulty** | Beginner / Easy |\n| **Time** | < 1 minute |\n| **Language** | TypeScript, JSON |\n| **Framework** | Next.js, React |\n| **Good for** | First-time contributors, Hacktoberfest |\n\n> **No coding experience required!** This is a simple JSON/data file edit — perfect for your first open source contribution. No setup is required. \n\n**Questions?** Comment below and we'll help! 🙌\n\n_This is a beginner-friendly, good first issue for first-time open source contributors. No coding experience needed — just edit a JSON file! See our [Beginner Contributing Guide](../blob/main/docs/CONTRIBUTING-BEGINNERS.md) for step-by-step instructions._",
+   "labels": "[\"help wanted\", \"good first issue\", \"hacktoberfest\", \"community\", \"low hanging fruit\", \"up-for-grabs\", \"first-timers-only\", \"good-first-issue\"]",
+   "comments": 1,
+   "url": "https://github.com/lingdojo/kana-dojo/issues/31318"
+  },
+  "repo": {
+   "stars": 3530,
+   "language": "TypeScript",
+   "description": "Aesthetic, minimalist platform for learning Japanese inspired by Duolingo and Monkeytype, built with Next.js and sponsored by Vercel. Beginner-friendly with plenty of good first issues - all contributions are welcome!"
+  },
+  "labels": {
+   "category": "other",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOBKnnxc7gsrnf",
+  "issue": {
+   "repo": "super-productivity/super-productivity",
+   "number": 5835,
+   "title": "💡 Integrate tasks with contacts from phone book, internal contact map, or external apps",
+   "body": "### Problem Statement\n\nMany tasks involve people (e.g., calls, meetings), but there's no way to link them to contacts from phone book or other sources, leading to manual copying of details.\n\n### Possible Solution\n\n- Allow creating/linking tasks to contacts: Import from device phone book, or add an internal contact manager (with custom fields) in the app.\n- Support integration with external apps (e.g., Google Contacts, etc).\n- In task properties: Add fields for contact (name, phone, email) — auto-complete from contacts.\n- Features: Click-to-call/email from task, reminders tied to contacts, search tasks by contact.\n\nThis would streamline social/professional tasks.\n\n### Describe alternatives you've considered\n\nManual notes with contact info, but integration would automate and reduce errors.\n\n### Additional context\n\nPrivacy: Optional permissions for contact access. Could be a plugin for different platforms (Android/iOS/desktop).",
+   "labels": "[\"help wanted\", \"needs concept and/or ui spec\"]",
+   "comments": 5,
+   "url": "https://github.com/super-productivity/super-productivity/issues/5835"
+  },
+  "repo": {
+   "stars": 22425,
+   "language": "TypeScript",
+   "description": "Super Productivity is an advanced todo list app with integrated Timeboxing and time tracking capabilities. It also comes with integrations for Jira, GitLab, GitHub and Open Project."
+  },
+  "labels": {
+   "category": "web_frontend",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "MDU6SXNzdWU3MTQzMjgxOTI=",
+  "issue": {
+   "repo": "scikit-learn/scikit-learn",
+   "number": 18530,
+   "title": "Are predictions on scikit-learn models thread-safe?",
+   "body": "Given some classifier (SVC/Forest/NN/whatever) is it safe to call `.predict` on the same instance concurrently from different threads?\r\n\r\nFrom a distant point of view, my guess is they do not mutate any internal state. But I did not find anything in the docs about it.\r\n\r\nHere is a minimal example showing what I mean:\r\n\r\n```python3\r\n#!/usr/bin/env python3\r\nimport threading\r\n\r\nfrom sklearn import datasets\r\nfrom sklearn import svm\r\nfrom sklearn.ensemble import RandomForestClassifier\r\nfrom sklearn.neural_network import MLPClassifier\r\n\r\nX, y = datasets.load_iris(return_X_y=True)\r\n\r\n# Some model. Might be any type, e.g.:\r\nclf = svm.SVC()\r\nclf = RandomForestClassifier(),\r\nclf = MLPClassifier(solver='lbfgs')\r\n\r\nclf.fit(X, y)\r\n\r\n\r\ndef use_model_for_predictions():\r\n    for _ in range(10000):\r\n        clf.predict(X[0:1])\r\n\r\n\r\n# Is this safe?\r\nthread_1 = threading.Thread(target=use_model_for_predictions)\r\nthread_2 = threading.Thread(target=use_model_for_predictions)\r\nthread_1.start()\r\nthread_2.start()\r\n```",
+   "labels": "[\"Documentation\", \"help wanted\", \"module:test-suite\"]",
+   "comments": 9,
+   "url": "https://github.com/scikit-learn/scikit-learn/issues/18530"
+  },
+  "repo": {
+   "stars": 67436,
+   "language": "Python",
+   "description": "scikit-learn: machine learning in Python"
+  },
+  "labels": {
+   "category": "data_scraping",
+   "kind": "docs",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOMdP6aM8AAAABTx6UHg",
+  "issue": {
+   "repo": "MODSetter/SurfSense",
+   "number": 1986,
+   "title": "Release CI checks the packaged `llama-server` only on Linux",
+   "body": "## The gap\r\n\r\n[`docs/architecture/local-models/runtime.md`](https://github.com/MODSetter/SurfSense/blob/dev/docs/architecture/local-models/runtime.md) lists this under **Known gaps**:\r\n\r\n> Release CI runs the packaged `llama-server --list-devices` on Linux only; the macOS and Windows builds are checked only in the staging directory by `fetch-llamacpp.mjs`.\r\n\r\n## Why it matters\r\n\r\nggml finds its backend libraries by scanning the running executable's own directory. Anywhere else it reports no devices, silently, and every model runs on the processor. The Linux smoke step exists to catch that, and it catches it in the packaged layout — which is the only layout that matters, because the staging check happens before electron-builder copies, prunes, signs and notarizes anything.\r\n\r\nOn macOS and Windows that check never runs again after staging. So the steps most likely to break the packaged runtime are the ones with nothing after them. macOS is the sharper case: signing and notarization rewrite the binaries, and the hardened runtime has to hold for a worker process the router spawns as a grandchild. A build where that broke would ship, install, and run every model on the CPU without saying a word.\r\n\r\n## Where\r\n\r\n- [`.github/workflows/release-local.yml`](https://github.com/MODSetter/SurfSense/blob/dev/.github/workflows/release-local.yml) — `Smoke the bundled llama.cpp (Linux)`, gated on `if: matrix.os == 'ubuntu-22.04'`. Its assertion is already written for you: the output must either list devices or say it found none. The neighbouring audio.cpp and sd.cpp smokes are gated the same way; this issue is llama.cpp, and if you extend those too, say so in the PR.\r\n- The packaged path differs per platform. Linux reads `release/linux-unpacked/resources/llamacpp`; find the Windows and macOS equivalents from electron-builder's own output rather than guessing, since on macOS the resources sit inside the `.app` bundle.\r\n- [`surfsense_local/electron/scripts/fetch-llamacpp.mjs`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_local/electron/scripts/fetch-llamacpp.mjs) — the staging check this one mirrors, so the two stay recognisably the same check in two places.\r\n- [`surfsense_local/electron/electron-builder.yml`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_local/electron/electron-builder.yml) — `entitlementsInherit` and the `llamacpp` entry in `extraResources`, which is what a macOS failure here would be about.\r\n\r\n## What done looks like\r\n\r\n- A release run fails when the packaged `llama-server` on macOS or Windows cannot list devices from its own resources directory.\r\n- The command is run from that directory. Run from anywhere else it reports no devices on a perfectly healthy machine, so a check that got this wrong would pass on a broken build and fail on a good one — worse than no check.\r\n- The runner has no graphics card, so \"found none\" is a pass, exactly as on Linux.\r\n- On macOS, decide whether the check runs before or after signing and notarization, and say why. After is the stronger check and most of the reason to add it.\r\n- Delete the Known gaps line from `docs/architecture/local-models/runtime.md`, and update the release description in [`docs/architecture/packaging.md`](https://github.com/MODSetter/SurfSense/blob/dev/docs/architecture/packaging.md), which currently says this check happens on Linux.\r\n\r\n## What not to change\r\n\r\nLeave the Linux step as it is, and leave the `workflow_dispatch` dry-run path intact — a version input with `publish: never` is how you are going to test this, and how the next person will. Do not add anything that needs the signing secrets to pass, or the workflow stops working on forks.\r\n\r\n## How to verify\r\n\r\nThere is no harness for the release workflow, so verify it by running it. A `workflow_dispatch` run with a version and `publish: never` builds all three platforms without publishing and without the signing secrets: `Detect release signing eligibility` sets `prod=false` for anything that is not a tag push, so the notarization credential check and Azure Trusted Signing are skipped. You can do this on your own fork.\r\n\r\n```bash\r\ngh workflow run release-local.yml -f version=0.0.0-test -f publish=never\r\npython scripts/check_docs.py          # from the repo root, for the doc edits\r\n```\r\n\r\nPaste the macOS and Windows step output into the PR. That output is the evidence, and there is no smaller substitute for it.\r\n\r\n## Before you start\r\n\r\nRead [CONTRIBUTING.md](https://github.com/MODSetter/SurfSense/blob/dev/CONTRIBUTING.md), the [runtime doc](https://github.com/MODSetter/SurfSense/blob/dev/docs/architecture/local-models/runtime.md), [ADR 0012](https://github.com/MODSetter/SurfSense/blob/dev/docs/adr/0012-vulkan-only-gpu-backend.md) and [ADR 0021](https://github.com/MODSetter/SurfSense/blob/dev/docs/adr/0021-no-intel-mac-build.md), which is why macOS is arm64 only. Open your PR against `dev`, not `main`. Comment here to claim this.\r\n",
+   "labels": "[\"help wanted\", \"test\", \"desktop\"]",
+   "comments": 0,
+   "url": "https://github.com/MODSetter/SurfSense/issues/1986"
+  },
+  "repo": {
+   "stars": 16311,
+   "language": "Python",
+   "description": "Air gapped, privacy focused open source NotebookLM alternative. Join our Discord: https://discord.gg/ejRNvftDp9"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "test",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOMQS1Ps7CORcb",
+  "issue": {
+   "repo": "webmachinelearning/prompt-api",
+   "number": 137,
+   "title": "Tool-calling: would output schemas be useful?",
+   "body": "At @michaelwasserman's prompting, I investigated whether in addition to `inputSchema`, any existing tool-calling APIs support declaring an output schema.\n\nLooking at the [MCP spec](https://modelcontextprotocol.io/specification/2025-06-18/server/tools), they indeed have an [`outputSchema`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#output-schema) property.\n\nWould this be helpful for our implementations? That is, is there any benefit to the language model, if the web developer tells it what format to expect the results in? It seems a bit unlikely to be a useful way to consume context tokens to me, but I'm not an expert.\n\nNote that MCP is the only place I saw that included this functionality, so I suspect the answer is \"it's probably not that useful\" for a base language model interface.",
+   "labels": "[\"tools\"]",
+   "comments": 2,
+   "url": "https://github.com/webmachinelearning/prompt-api/issues/137"
+  },
+  "repo": {
+   "stars": 787,
+   "language": "Bikeshed",
+   "description": "💬 A proposal for a web API for prompting browser-provided language models"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOMdP6aM8AAAABTx51tQ",
+  "issue": {
+   "repo": "MODSetter/SurfSense",
+   "number": 1971,
+   "title": "Deleting the image or audio model in use fails while its server holds the file",
+   "body": "## The gap\r\n\r\n[`docs/architecture/local-models/catalog.md`](https://github.com/MODSetter/SurfSense/blob/dev/docs/architecture/local-models/catalog.md) lists this under **Known gaps**:\r\n\r\n> Deleting the image or audio model in use removes its file while sd-server or audiocpp_server may still have it open. Untested on Windows, which refuses to delete an open file, so there the delete may fail until that server is stopped first.\r\n\r\n## Why it matters\r\n\r\nBoth servers are started by Electron on the model the API says to use, and they hold their weights open for as long as they run. Delete is offered on the model in use on purpose — the API clears the slot and Electron stops or restarts the server on its next poll — but the file goes first and the server stops afterwards.\r\n\r\nOn Windows that order cannot work: `unlink()` on an open file raises `PermissionError`, and `delete_model()` catches only `ModelBusyError` and `FileNotFoundError`, so it escapes as a 500. The user gets \"The request failed\" on a delete that will keep failing until they quit the app, and a half-removed model: `forget_install()` has already rewritten `installs.json`, so the record is gone while the gigabytes are still on disk.\r\n\r\n## Where\r\n\r\n- [`surfsense_local/backend/modules/llm/router.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_local/backend/modules/llm/router.py) — `delete_model()`, the `try` around `service.remove()`. It already turns a busy model into a 409 with a sentence; an open file needs the same treatment rather than a 500.\r\n- [`surfsense_local/backend/modules/llm/catalog/local/service.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_local/backend/modules/llm/catalog/local/service.py) — `remove()`, the `unlink(missing_ok=True)` loop, and the order it runs in relative to `forget_install()`.\r\n- [`surfsense_local/electron/src/main/index.ts`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_local/electron/src/main/index.ts) — `watchImageModel()` and `watchAudioModels()` are what actually stop the servers, on a poll a few seconds later. If your answer is to stop the server first, this is the seam, and `modules/llm/providers/sdcpp/serving.py` shows how the backend already waits on sd-server.\r\n\r\n## What done looks like\r\n\r\n- Deleting the image or audio model in use on Windows either succeeds, or fails with a sentence a person can act on, and never leaves the record deleted while the file stays.\r\n- Which of those it is, is yours to decide. Reporting a clean 409 is the smaller diff; making the delete wait for the server to release the file is the better experience and needs the poll to be driven rather than waited on. Say which you chose in the PR.\r\n- Delete the Known gaps line from `docs/architecture/local-models/catalog.md` in the same PR, and update the **On the screen** bullets there if the behaviour they describe changes.\r\n\r\n## What not to change\r\n\r\nDeleting a model without asking the runtime anything is deliberate, and the comment in `delete_model()` says why: one reason to delete a model is that things are broken, and a dead router used to make models undeletable. Keep disk as the inventory.\r\n\r\n## How to verify\r\n\r\n[`surfsense_local/backend/tests/integration/llm/test_image_catalog_routes.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_local/backend/tests/integration/llm/test_image_catalog_routes.py) and [`test_audio_catalog_routes.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_local/backend/tests/integration/llm/test_audio_catalog_routes.py) already drive delete over these routes. The repo is TDD: write the failing test first — the simplest one holds the file open (or makes `unlink` raise `PermissionError`) and asserts the response and that `installs.json` still names the build.\r\n\r\n```bash\r\ncd surfsense_local/backend\r\nuv run pytest -m unit\r\nuv run pytest -m integration\r\nuv run ruff check .\r\n```\r\n\r\n## Before you start\r\n\r\nRead [CONTRIBUTING.md](https://github.com/MODSetter/SurfSense/blob/dev/CONTRIBUTING.md) and the [local model catalog doc](https://github.com/MODSetter/SurfSense/blob/dev/docs/architecture/local-models/catalog.md). This is the one gap on this page that genuinely needs a Windows machine to confirm; if you only have macOS or Linux, say so and make the test force the error. Interface strings in `surfsense_local` follow the `translate` skill in [AGENTS.md](https://github.com/MODSetter/SurfSense/blob/dev/AGENTS.md). Open your PR against `dev`, not `main`. Comment here to claim this.\r\n",
+   "labels": "[\"bug\", \"help wanted\", \"desktop\"]",
+   "comments": 0,
+   "url": "https://github.com/MODSetter/SurfSense/issues/1971"
+  },
+  "repo": {
+   "stars": 16311,
+   "language": "Python",
+   "description": "Air gapped, privacy focused open source NotebookLM alternative. Join our Discord: https://discord.gg/ejRNvftDp9"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "bug",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDODhKIWM8AAAABPySe4w",
+  "issue": {
+   "repo": "backstage/backstage",
+   "number": 35520,
+   "title": "Snyk vulnerability [SNYK-JS-LODASH-15869625]",
+   "body": "\n## Affecting Packages/Plugins\n\n* [@backstage/repo-tools](packages/repo-tools/package.json)\n\n## Overview\n[lodash](https://www.npmjs.com/package/lodash) is a modern JavaScript utility library delivering modularity, performance, & extras.\n\nAffected versions of this package are vulnerable to Arbitrary Code Injection due the improper validation of `options.imports` key names in `_.template`. An attacker can execute arbitrary code at template compilation time by injecting malicious expressions. If `Object.prototype` has been polluted, inherited properties may also be copied into the imports object and executed.\r\n\r\n**Notes:**\r\n\r\n1) Version 4.18.0 was intended to fix this vulnerability but it got deprecated due to introducing a breaking [functionality issue](https://github.com/lodash/lodash/issues/6167).\r\n\r\n2) This issue is due to the incomplete fix for [CVE-2021-23337](https://security.snyk.io/vuln/SNYK-JS-LODASH-1040724).\n## Remediation\nUpgrade `lodash` to version 4.18.1 or higher.\n## References\n- [GitHub Advisory](https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc)\n- [GitHub Commit](https://github.com/lodash/lodash/commit/879aaa93132d78c2f8d20c60279da9f8b21576d6)\n- [GitHub Issue](https://github.com/lodash/lodash/issues/6167)\n- [OpenJS Security Advisory](https://cna.openjsf.org/security-advisories.html)\n\n",
+   "labels": "[\"snyk-vulnerability\", \"help wanted\"]",
+   "comments": 0,
+   "url": "https://github.com/backstage/backstage/issues/35520"
+  },
+  "repo": {
+   "stars": 34535,
+   "language": "TypeScript",
+   "description": "Backstage is an open framework for building developer portals"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "chore",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDODhKIWM8AAAABP7SqNA",
+  "issue": {
+   "repo": "backstage/backstage",
+   "number": 35543,
+   "title": "Snyk vulnerability [SNYK-JS-NODEFORGE-19635204]",
+   "body": "\n## Affecting Packages/Plugins\n\n* [example-app](packages/app/package.json)\n* [example-app-legacy](packages/app-legacy/package.json)\n* [example-backend](packages/backend/package.json)\n* [@backstage/backend-defaults](packages/backend-defaults/package.json)\n* [@backstage/backend-dynamic-feature-service](packages/backend-dynamic-feature-service/package.json)\n* [@backstage/backend-openapi-utils](packages/backend-openapi-utils/package.json)\n* [@backstage/backend-test-utils](packages/backend-test-utils/package.json)\n* [@backstage/cli](packages/cli/package.json)\n* [@backstage/cli-defaults](packages/cli-defaults/package.json)\n* [@backstage/cli-module-build](packages/cli-module-build/package.json)\n* [@techdocs/cli](packages/techdocs-cli/package.json)\n* [techdocs-cli-embedded-app](packages/techdocs-cli-embedded-app/package.json)\n* [@backstage/plugin-auth-backend](plugins/auth-backend/package.json)\n* [@backstage/plugin-auth-backend-module-aws-alb-provider](plugins/auth-backend-module-aws-alb-provider/package.json)\n* [@backstage/plugin-auth-backend-module-github-provider](plugins/auth-backend-module-github-provider/package.json)\n* [@backstage/plugin-auth-backend-module-oidc-provider](plugins/auth-backend-module-oidc-provider/package.json)\n* [@backstage/plugin-catalog-backend](plugins/catalog-backend/package.json)\n* [@backstage/plugin-catalog-backend-module-ai-model](plugins/catalog-backend-module-ai-model/package.json)\n* [@backstage/plugin-catalog-backend-module-aws](plugins/catalog-backend-module-aws/package.json)\n* [@backstage/plugin-catalog-backend-module-azure](plugins/catalog-backend-module-azure/package.json)\n* [@backstage/plugin-catalog-backend-module-backstage-openapi](plugins/catalog-backend-module-backstage-openapi/package.json)\n* [@backstage/plugin-catalog-backend-module-bitbucket-cloud](plugins/catalog-backend-module-bitbucket-cloud/package.json)\n* [@backstage/plugin-catalog-backend-module-bitbucket-server](plugins/catalog-backend-module-bitbucket-server/package.json)\n* [@backstage/plugin-catalog-backend-module-gcp](plugins/catalog-backend-module-gcp/package.json)\n* [@backstage/plugin-catalog-backend-module-gerrit](plugins/catalog-backend-module-gerrit/package.json)\n* [@backstage/plugin-catalog-backend-module-gitea](plugins/catalog-backend-module-gitea/package.json)\n* [@backstage/plugin-catalog-backend-module-github](plugins/catalog-backend-module-github/package.json)\n* [@backstage/plugin-catalog-backend-module-github-org](plugins/catalog-backend-module-github-org/package.json)\n* [@backstage/plugin-catalog-backend-module-gitlab](plugins/catalog-backend-module-gitlab/package.json)\n* [@backstage/plugin-catalog-backend-module-gitlab-org](plugins/catalog-backend-module-gitlab-org/package.json)\n* [@backstage/plugin-catalog-backend-module-incremental-ingestion](plugins/catalog-backend-module-incremental-ingestion/package.json)\n* [@backstage/plugin-catalog-backend-module-ldap](plugins/catalog-backend-module-ldap/package.json)\n* [@backstage/plugin-catalog-backend-module-logs](plugins/catalog-backend-module-logs/package.json)\n* [@backstage/plugin-catalog-backend-module-msgraph](plugins/catalog-backend-module-msgraph/package.json)\n* [@backstage/plugin-catalog-backend-module-msgraph-incremental](plugins/catalog-backend-module-msgraph-incremental/package.json)\n* [@backstage/plugin-catalog-backend-module-openapi](plugins/catalog-backend-module-openapi/package.json)\n* [@backstage/plugin-catalog-backend-module-puppetdb](plugins/catalog-backend-module-puppetdb/package.json)\n* [@backstage/plugin-catalog-backend-module-scaffolder-entity-model](plugins/catalog-backend-module-scaffolder-entity-model/package.json)\n* [@backstage/plugin-catalog-backend-module-unprocessed](plugins/catalog-backend-module-unprocessed/package.json)\n* [@backstage/plugin-connections-example-backend](plugins/connections-example-backend/package.json)\n* [@backstage/plugin-events-backend](plugins/events-backend/package.json)\n* [@backstage/plugin-kubernetes-backend](plugins/kubernetes-backend/package.json)\n* [@backstage/plugin-mcp-actions-backend](plugins/mcp-actions-backend/package.json)\n* [@backstage/plugin-notifications-backend](plugins/notifications-backend/package.json)\n* [@backstage/plugin-notifications-backend-module-email](plugins/notifications-backend-module-email/package.json)\n* [@backstage/plugin-notifications-backend-module-slack](plugins/notifications-backend-module-slack/package.json)\n* [@backstage/plugin-scaffolder-backend](plugins/scaffolder-backend/package.json)\n* [@backstage/plugin-scaffolder-backend-module-azure](plugins/scaffolder-backend-module-azure/package.json)\n* [@backstage/plugin-scaffolder-backend-module-bitbucket-cloud](plugins/scaffolder-backend-module-bitbucket-cloud/package.json)\n* [@backstage/plugin-scaffolder-backend-module-bitbucket-server](plugins/scaffolder-backend-module-bitbucket-server/package.json)\n* [@backstage/plugin-scaffolder-backend-module-confluence-to-markdown](plugins/scaffolder-backend-module-confluence-to-markdown/package.json)\n* [@backstage/plugin-scaffolder-backend-module-cookiecutter](plugins/scaffolder-backend-module-cookiecutter/package.json)\n* [@backstage/plugin-scaffolder-backend-module-gcp](plugins/scaffolder-backend-module-gcp/package.json)\n* [@backstage/plugin-scaffolder-backend-module-gerrit](plugins/scaffolder-backend-module-gerrit/package.json)\n* [@backstage/plugin-scaffolder-backend-module-gitea](plugins/scaffolder-backend-module-gitea/package.json)\n* [@backstage/plugin-scaffolder-backend-module-github](plugins/scaffolder-backend-module-github/package.json)\n* [@backstage/plugin-scaffolder-backend-module-gitlab](plugins/scaffolder-backend-module-gitlab/package.json)\n* [@backstage/plugin-scaffolder-backend-module-notifications](plugins/scaffolder-backend-module-notifications/package.json)\n* [@backstage/plugin-scaffolder-backend-module-rails](plugins/scaffolder-backend-module-rails/package.json)\n* [@backstage/plugin-scaffolder-backend-module-sentry](plugins/scaffolder-backend-module-sentry/package.json)\n* [@backstage/plugin-scaffolder-backend-module-workspace-database](plugins/scaffolder-backend-module-workspace-database/package.json)\n* [@backstage/plugin-scaffolder-backend-module-yeoman](plugins/scaffolder-backend-module-yeoman/package.json)\n* [@backstage/plugin-scaffolder-node-test-utils](plugins/scaffolder-node-test-utils/package.json)\n* [@backstage/plugin-search-backend](plugins/search-backend/package.json)\n* [@backstage/plugin-search-backend-module-catalog](plugins/search-backend-module-catalog/package.json)\n* [@backstage/plugin-search-backend-module-techdocs](plugins/search-backend-module-techdocs/package.json)\n* [@backstage/plugin-techdocs-backend](plugins/techdocs-backend/package.json)\n\n## Overview\n[node-forge](https://github.com/digitalbazaar/forge) is a JavaScript implementations of network transports, cryptography, ciphers, PKI, message digests, and various utilities.\n\nAffected versions of this package are vulnerable to Improper Verification of Cryptographic Signature in `rsa.js`, whose `DigestInfo` validation checks the outer element count (`obj.value.length !== 2`) but never verifies the element count of the inner `DigestAlgorithm` SEQUENCE, so the ASN.1 parser accepts extra children that are ignored during digest extraction. An attacker can forge a signature that verifies as valid for an arbitrary message, without the private key, by fixing the target digest at the block boundaries and filling roughly 314 garbage bytes inside the `DigestAlgorithm` structure to absorb the mathematical residue. This only affects verification against RSA keys with a low public exponent such as `e=3`, and although `_parseAllDigestBytes` defaults to true and rejects trailing garbage, it does not detect this interior padding.\r\n\r\n**Note:** This is a bypass of the fix for the vulnerability described in [CVE-2026-33894](https://security.snyk.io/vuln/SNYK-JS-NODEFORGE-15789773) and, as of this publication, has not been acknowledged by project maintainers.\n## Remediation\nA fix was pushed into the `master` branch but not yet published.\n## References\n- [github.com](https://github.com/digitalbazaar/forge/blob/v1.4.0/lib/asn1.js)\n- [github.com](https://github.com/digitalbazaar/forge/blob/v1.4.0/lib/rsa.js)\n- [GitHub Issue](https://github.com/digitalbazaar/forge/issues/1149)\n\n",
+   "labels": "[\"snyk-vulnerability\", \"help wanted\"]",
+   "comments": 0,
+   "url": "https://github.com/backstage/backstage/issues/35543"
+  },
+  "repo": {
+   "stars": 34535,
+   "language": "TypeScript",
+   "description": "Backstage is an open framework for building developer portals"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "chore",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOBKnnxc8AAAABG5iF6Q",
+  "issue": {
+   "repo": "super-productivity/super-productivity",
+   "number": 8615,
+   "title": "💡 Add a folder option to the board project filter",
+   "body": "### Problem Statement\n\nRight now board panels can only be filtered by project, using the projectIds field on the panel config. Users who have a lot of projects organized into folders (in the project menu tree) have no way to filter a board panel by folder. They have to pick every single project inside the folder by hand. This gets tedious, and it also goes out of sync as soon as you add a new project to the folder later on.\n\n### Possible Solution\n\nAdd the option to select one or more project folders in the board panel's project filter, on top of the per-project selection that already exists. The per-project selection should stay as it is. Folders are an extra option, not a replacement, and the selected folders add up to any projects picked by hand. For example, pick two folders plus a couple of individual projects, and the panel shows the union of all of them.\n\nThe folders should be stored as a new `folderIds` field on the panel config, next to `projectIds`, and resolved into their project IDs at render time (recursively for nested folders). This keeps the filter dynamic: a project added to a folder later shows up automatically in every board that filters by it. The folder-aware UI is mostly there already, since `select-project.component.ts` already injects the menu-tree service and shows the folder path next to each project. To define: behavior when a selected folder is deleted, plus typia validation and config migration for the new field.\n\n### Describe alternatives you've considered\n\nOne option would be to expand the selected folders to project IDs at save time and just merge them into `projectIds`, without storing any folder reference. It's simpler and adds no sync surface, but I don't think it's worth it: the filter becomes static, so a project added to the folder afterwards won't show up until you edit the board again, and once it's saved you can't even tell anymore which projects came from a folder and which were picked by hand. That pretty much defeats the point of filtering by folder in the first place.\n\n### Additional context\n\n_No response_",
+   "labels": "[\"help wanted\", \"community feedback wanted\"]",
+   "comments": 2,
+   "url": "https://github.com/super-productivity/super-productivity/issues/8615"
+  },
+  "repo": {
+   "stars": 22425,
+   "language": "TypeScript",
+   "description": "Super Productivity is an advanced todo list app with integrated Timeboxing and time tracking capabilities. It also comes with integrations for Jira, GitLab, GitHub and Open Project."
+  },
+  "labels": {
+   "category": "web_frontend",
+   "kind": "feature",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOBKnnxc679iwD",
+  "issue": {
+   "repo": "super-productivity/super-productivity",
+   "number": 4603,
+   "title": "🚨 App does not try polling from local instance in an offline network (Android)",
+   "body": "### Version Used\n\n13.0.11\n\n### Expected Behavior\n\nI have a local GitLab instance running in a separate dedicated home WiFi network. This WiFi network is local-only(no internet) and hosts the GitLab instance. The real setup is slightly different but the concept is same.\n\nWhen SuperProd is configured while in this network, such as using local GitLab IP such as 192.168.111.9, it allows searching for adding tasks. But auto-polling stops unless I connect the said WiFi network to internet or Enable mobile data in my phone.\n\n**Expected Behavior:**\nAuto-polling should not stop for hosts with private IPs, even when device has no internet connection.\n\n### Current Behavior\n\nI understand that currently auto-polling stops if device/app has no internet, which is fair and might be by design\n\n\n### Steps to Reproduce\n\n1. Self-host a local instance of GitLab\n2. Keep mobile data off. Create a hotspot on mobile and connect GitLab instance to it.\n3. Add a project to SuperProd using the local IP of self-hosted GitLab \n4. Wait for polling to happen. Nothing happens until..\n5. You turn on mobile data\n\n### Can you reproduce this reliably?\n\nYes, I can reproduce it reliably.\n\n### Console Output\n\n```shell\n\n```",
+   "labels": "[\"help wanted\"]",
+   "comments": 4,
+   "url": "https://github.com/super-productivity/super-productivity/issues/4603"
+  },
+  "repo": {
+   "stars": 22425,
+   "language": "TypeScript",
+   "description": "Super Productivity is an advanced todo list app with integrated Timeboxing and time tracking capabilities. It also comes with integrations for Jira, GitLab, GitHub and Open Project."
+  },
+  "labels": {
+   "category": "web_frontend",
+   "kind": "bug",
+   "difficulty": "medium",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOSfPzA88AAAABDgO6Xw",
+  "issue": {
+   "repo": "SecureBananaLabs/bug-bounty",
+   "number": 743,
+   "title": "Low Handing Fruit Automation",
+   "body": "Automate Low Hanging fruit bug detection and issue creation recursively.\n\nThis issue is an issue focused on creating more issues:\n1. Find a feature/bug to work on from this repository\n2. Create a GitHub issue on the repository to start working on it -- Pull requests without issues will not be considered.\n3. Use the following string in the issue that you created: \"This issue is limited only to the creator of this issue. This means that only the issue author can attempt to solve this issue. If you would like to work on it, please create another issue with the same contents and refer to issue #743 for more information.\"\n\nFollow all instructions carefully and precisely.\nImportant: Star the repository https://github.com/SecureBananaLabs/bug-bounty \n\n/bounty $700\n\nBounties can only be paid upon successful PR merge.",
+   "labels": "[\"bug\", \"documentation\", \"good first issue\", \"help wanted\", \"bug bounty\", \"AI agent friendly\", \"bounty\", \"\\ud83d\\udc8e Bounty\", \"$700\"]",
+   "comments": 1416,
+   "url": "https://github.com/SecureBananaLabs/bug-bounty/issues/743"
+  },
+  "repo": {
+   "stars": 304,
+   "language": "JavaScript",
+   "description": ""
+  },
+  "labels": {
+   "category": "other",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOMdP6aM8AAAABTx6-KA",
+  "issue": {
+   "repo": "MODSetter/SurfSense",
+   "number": 2008,
+   "title": "Sunset and purge runbooks omit `DEPLOYMENT_MODE`, which both depend on",
+   "body": "## The gap\r\n\r\n[`docs/architecture/sunset.md`](https://github.com/MODSetter/SurfSense/blob/dev/docs/architecture/sunset.md) lists this under **Known gaps**:\r\n\r\n> The runbooks do not mention `DEPLOYMENT_MODE`, which the flag and therefore the purge script both depend on.\r\n\r\n## Why it matters\r\n\r\n`is_sunset_mode()` returns false unless `DEPLOYMENT_MODE=cloud` **and** `SUNSET_MODE` is truthy. Both runbooks are written as though `SUNSET_MODE` were the whole switch, and one of them hands the operator a command that is wrong because of it.\r\n\r\nThe purge runbook's recovery instruction for running the script outside the usual host is `SUNSET_MODE=1 python -m scripts.purge_hosted_accounts`. In a shell without `DEPLOYMENT_MODE=cloud` that still refuses, and the runbook has already told the reader that a refusal here means the guard doing its job. So the operator reads a correct refusal as expected behaviour, sets the one variable the document names, gets the same refusal, and is out of instructions — on the day the deletion was promised for. The sunset runbook has the same hole in its \"One variable, two places\" table and its stage 1 check.\r\n\r\n## Where\r\n\r\n- [`plans/community-local/purge-runbook.md`](https://github.com/MODSetter/SurfSense/blob/dev/plans/community-local/purge-runbook.md) — the section \"The flag the script checks\", and the `SUNSET_MODE=1 python -m scripts.purge_hosted_accounts` line under it.\r\n- [`plans/community-local/sunset-runbook.md`](https://github.com/MODSetter/SurfSense/blob/dev/plans/community-local/sunset-runbook.md) — \"One variable, two places\", stage 0's stop condition and stage 1's `/health` check, all of which assume `SUNSET_MODE` alone decides.\r\n- [`surfsense_backend/app/sunset.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_backend/app/sunset.py) — `is_sunset_mode()` is the behaviour both runbooks are describing. Read it before writing anything.\r\n- [`surfsense_backend/.env.example`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_backend/.env.example) already explains the pairing beside `SUNSET_MODE`, and [ADR 0023](https://github.com/MODSetter/SurfSense/blob/dev/docs/adr/0023-sunset-behind-flags.md) records that production sets `DEPLOYMENT_MODE=cloud`. Reuse that wording rather than writing a third version of it.\r\n\r\n## What done looks like\r\n\r\n- Both runbooks say that the flag is two variables, not one, and that `DEPLOYMENT_MODE=cloud` is the half that is already set on production and is easy to lose when working from a different shell, container or checkout.\r\n- The purge runbook's fallback command sets both variables, so following it literally works.\r\n- The sunset runbook's stage 1 check tells the operator what to look at when `/health` still reports `sunset: false` after the flag is set.\r\n- Stay inside the existing structure. These are stage-ordered operational documents with checks and stop conditions, not prose to rewrite.\r\n- Delete the Known gaps line from `docs/architecture/sunset.md` in the same PR.\r\n\r\n## What not to change\r\n\r\nDo not change `is_sunset_mode()` to drop the `DEPLOYMENT_MODE` requirement. It is the only thing standing between a self-hosted install with a copied `.env` and a purge script pointed at its database, and [`tests/unit/test_sunset_write_block.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_backend/tests/unit/test_sunset_write_block.py) asserts it in both directions. This issue is documentation only; the code is right and the documents are behind it.\r\n\r\n## How to verify\r\n\r\nNo test to write — this is docs. Read the script and the flag first, and confirm every command you leave in the runbook would actually succeed on a shell that has neither variable set.\r\n\r\n```bash\r\npython scripts/check_docs.py\r\n```\r\n\r\n## Before you start\r\n\r\nRead [CONTRIBUTING.md](https://github.com/MODSetter/SurfSense/blob/dev/CONTRIBUTING.md), the [sunset doc](https://github.com/MODSetter/SurfSense/blob/dev/docs/architecture/sunset.md) and [ADR 0023](https://github.com/MODSetter/SurfSense/blob/dev/docs/adr/0023-sunset-behind-flags.md). This is time-critical: the purge runbook is executed on 18 Oct 2026, and after it there is no second chance to have got the instructions right. Open your PR against `dev`, not `main`. Comment here to claim this.\r\n",
+   "labels": "[\"documentation\", \"help wanted\", \"good first issue\", \"hosted\"]",
+   "comments": 1,
+   "url": "https://github.com/MODSetter/SurfSense/issues/2008"
+  },
+  "repo": {
+   "stars": 16311,
+   "language": "Python",
+   "description": "Air gapped, privacy focused open source NotebookLM alternative. Join our Discord: https://discord.gg/ejRNvftDp9"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOBKnnxc8AAAABL85eSw",
+  "issue": {
+   "repo": "super-productivity/super-productivity",
+   "number": 9514,
+   "title": "💡 Calendar-style Week view with Monday-based weeks and week navigation",
+   "body": "### Problem Statement\n\nThe current Week view works as a rolling 7-day window starting from today. This makes it difficult to use the Schedule as a traditional calendar for planning and reviewing a specific calendar week.\n\nFor example, depending on which day today is, the Week view may start on a Wednesday, Saturday, or any other day, rather than representing a fixed Monday-based calendar week. It also doesn't provide a way to navigate to previous or future weeks as distinct calendar weeks.\n\nFor users used to a Google Calendar-style approach, having an anchored calendar week would make weekly planning and reviewing past or upcoming weeks much more intuitive.\n\n\n### Possible Solution\n\nAdd an optional calendar-style Week view based on fixed calendar weeks.\n\nIdeally, this view would provide:\n\nMonday as the first day of the week.\nA configurable choice between:\nWork week: Monday → Friday\nFull week: Monday → Sunday\nNavigation to previous and future weeks.\nA way to quickly return to the current week.\nThe selected week remains fixed rather than moving with the current day.\n\nThis could be implemented as an additional view alongside Day, Week, and Month, so the existing rolling 7-day Week view remains available for users who prefer it.\n\nFor example:\n\n‹ Previous week Aug 3 – Aug 9 Next week ›\n\nwith navigation to:\n\nJul 27 – Aug 2 ← Aug 3 – Aug 9 → Aug 10 – Aug 16\n\n### Describe alternatives you've considered\n\nI considered a few possible approaches:\n\n- Extending the existing Week view with a way to switch between the current rolling 7-day mode and an anchored calendar-week mode.\n- Adding a separate Calendar Week view alongside the existing Day, Week, and Month views. This would keep the current Week behavior completely unchanged while providing a dedicated traditional calendar-week experience.\n- Using the existing Month view, which already follows fixed calendar weeks, but it is less convenient for users who want a focused weekly planning and review experience.\n\nOf these options, I believe adding a separate Calendar Week view would be the cleanest approach, as it would preserve the current behavior while providing the additional functionality for users who need it.\n\nRegards.\n\nGn0m3\n\n### Additional context\n\n_No response_",
+   "labels": "[\"help wanted\"]",
+   "comments": 3,
+   "url": "https://github.com/super-productivity/super-productivity/issues/9514"
+  },
+  "repo": {
+   "stars": 22425,
+   "language": "TypeScript",
+   "description": "Super Productivity is an advanced todo list app with integrated Timeboxing and time tracking capabilities. It also comes with integrations for Jira, GitLab, GitHub and Open Project."
+  },
+  "labels": {
+   "category": "web_frontend",
+   "kind": "feature",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOOqxlKM8AAAABOAuYag",
+  "issue": {
+   "repo": "langchain-ai/docs",
+   "number": 5651,
+   "title": "4 code samples in your docs no longer compile",
+   "body": "I ran [snippetcheck](https://snippetcheck.dev) against the langchain docs — it type-checks every TypeScript sample in a docs site against the package's own published declarations, nothing executed.\n\nAgainst `langchain@1.5.10`, 4 findings marked included after review:\n\n| Kind | Symbol | Section | Page |\n|---|---|---|---|\n| removed-property | override | Context engineering in agents > Model context > Messages | https://docs.langchain.com/oss/javascript/langchain/context-engineering |\n| unknown-option | piiType | Guardrails > Built-in guardrails > PII detection | https://docs.langchain.com/oss/javascript/langchain/guardrails |\n| unknown-option | piiType | Guardrails > Built-in guardrails > PII detection | https://docs.langchain.com/oss/javascript/langchain/guardrails |\n| unknown-option | piiType | Guardrails > Built-in guardrails > PII detection | https://docs.langchain.com/oss/javascript/langchain/guardrails |\n\nMethod: type-checked against the package's own `.d.ts` declarations, nothing executed. 113 of 2914 extracted TypeScript samples checked. Skipped: 39 before-example, 59 historical-section, 363 no-target-import, 21 unsupported-language, 3 unparseable.\n\nHappy to share the full report, or re-run this after your next release.\n\n— David",
+   "labels": "[\"external\"]",
+   "comments": 0,
+   "url": "https://github.com/langchain-ai/docs/issues/5651"
+  },
+  "repo": {
+   "stars": 421,
+   "language": "MDX",
+   "description": "Unified LangChain documentation."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOBJotwM5gfHQd",
+  "issue": {
+   "repo": "Eugeny/tabby",
+   "number": 8062,
+   "title": "Missing option to automatically close tab when connection is lost",
+   "body": "### Discussed in https://github.com/Eugeny/tabby/discussions/8061\r\n\r\n<div type='discussions-op-text'>\r\n\r\n<sup>Originally posted by **jarnek73** March 10, 2023</sup>\r\nHi!\r\n\r\nI use tabby to mostly connect to my Ubuntu servers for remote administration.\r\nI miss the option to have tabby automatically close the tab when a connection is lost, eg. when doing a reboot.\r\nSo when a ssh-connection is lost, i can choose to let it ask if i want to reconnect like it does now (default), or i can choose to let it close the tab instead (optional).\r\nHope it makes sense and you will consider this option for a future release.</div>",
+   "labels": "[\"T: Enhancement\", \"Plugin: SSH\", \"Good first issue\"]",
+   "comments": 2,
+   "url": "https://github.com/Eugeny/tabby/issues/8062"
+  },
+  "repo": {
+   "stars": 74769,
+   "language": "TypeScript",
+   "description": "A terminal for a more modern age"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "feature",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOR4-pD88AAAABRjITlw",
+  "issue": {
+   "repo": "Graphify-Labs/graphify",
+   "number": 3600,
+   "title": "Windows skill reference docs assume mktemp/POSIX paths despite shell = powershell",
+   "body": "Follow up from #3439 / PR #3442.\n\nThe Windows platform declares `shell = \"powershell\"` in `tools/skillgen/platforms.toml`, and the repo already has a dedicated, deliberately strict POSIX to PowerShell translator for the core skill body (`tools/skillgen/gen.py`, the `_PY_INVOKE_POSIX`/`_PY_INVOKE_PS_OPEN` etc. block). That translator only runs on the core monolith, not on the per-platform `references/*.md` files.\n\nAs a result, `graphify/skills/windows/references/add-watch.md` and `graphify/skills/windows/references/query.md` still contain literal `mktemp /tmp/graphify_*.XXXXXX` bash commands inside fenced code blocks, which don't exist on a native Windows shell. A Windows host following these reference docs (add, watch, query, path, explain) gets a command it can't run.\n\nFixing this properly needs a decision on approach, not a one line patch:\n\n- Extend the existing strict translator to also run over `references/*.md`, adding a translation for `mktemp` (PowerShell equivalent is roughly `New-TemporaryFile` or `[System.IO.Path]::GetTempFileName()`, but the \"capture the printed path into a variable\" idiom differs from bash's `$(mktemp ...)` and needs its own translation rule), or\n- Give windows its own reference fragment variant for the handful of sections that use `mktemp`, or\n- Some other approach the maintainers prefer.\n\nFlagged by the graphify review bot on PR #3442 (`graphify/skills/windows/references/add-watch.md:15`, escalate/medium), confirmed real by grepping — the same pattern also appears in `references/query.md` (6 more occurrences), which the original finding didn't call out.",
+   "labels": "[\"help wanted\"]",
+   "comments": 2,
+   "url": "https://github.com/Graphify-Labs/graphify/issues/3600"
+  },
+  "repo": {
+   "stars": 122903,
+   "language": "Python",
+   "description": "Turn any codebase, with its docs, SQL schemas, configs, and PDFs, into a queryable knowledge graph. A /graphify skill for Claude Code, Cursor, Codex, and Gemini CLI: local deterministic AST parsing, every edge explained, no vector store."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "docs",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOTLc8jc8AAAABUUvabA",
+  "issue": {
+   "repo": "brekkylab/backlot",
+   "number": 385,
+   "title": "hubspot: a search filterGroups or query of the wrong type is a 500, where real refuses it or reads a number as text",
+   "body": "Split out of #379: the type checks on the search `filterGroups` and `query` from its block 3, which include that block's two 500s, so they can be fixed in a PR of their own. The rest of #379 stays there.\n\n**Source and commit** — `hubspot`, `main` at `faf734f`.\n\n**How you know** — measured against api.hubapi.com on 2026-10-01 with a read-only service key over a free portal of five contacts, one request per row; the same bodies sent to `backlot serve` over the bundled corpus the same day. `{\"filterGroups\": \"x\"}` and `{\"query\": 5}` answered as #379 recorded them on 2026-09-30. Backlot's side is `backlot/routers/hubspot.py`, which reads both members without checking their types: `{\"filterGroups\": \"x\"}` raises `AttributeError: 'str' object has no attribute 'get'` in `_sql_prefilter` at line 553 (`for f in groups[0].get(\"filters\") or []:`), and `{\"query\": 5}` raises `AttributeError: 'int' object has no attribute 'strip'` in `search_objects` at line 677.\n\n**Reproduction** — the bundled corpus, over `backlot.serve()`:\n\n```python\nimport urllib.request, urllib.error, backlot\n\nwith backlot.serve() as s:\n    h = {\"Authorization\": f\"Bearer {s.token}\", \"Content-Type\": \"application/json\"}\n    url = f\"{s.base_url}/hubspot/crm/v3/objects/contacts/search\"\n    for body in (b'{\"filterGroups\": \"x\"}', b'{\"query\": 5}'):\n        try:\n            urllib.request.urlopen(urllib.request.Request(url, data=body, headers=h))\n        except urllib.error.HTTPError as e:\n            print(e.status, e.read())\n```\n\nprints `500 b'Internal Server Error'` twice, where real answers the first with a 400 and the second with an empty page.\n\n## 1. A search `filterGroups` or `query` of the wrong type is a 500, or is served\n\n**Request** — `POST /crm/v3/objects/contacts/search` with each body in the table.\n\n**Backlot serves** — `500 Internal Server Error` for five of the bodies; `{\"filterGroups\": {}}` is read as no filter groups and served the unfiltered page at 200.\n\n**The real API serves** — a 400 `{\"status\":\"error\",\"message\":…,\"correlationId\":…,\"category\":\"VALIDATION_ERROR\"}` for five of the bodies, and a 200 for `{\"query\": 5}`:\n\n```\nbody                                    Backlot  real\n{\"filterGroups\": \"x\"}                   500      400  Invalid input JSON on line 1, column 18: Cannot deserialize value of type <>` from String value (token `JsonToken.VALUE_STRING`)\n{\"filterGroups\": [\"x\"]}                 500      400  Invalid input JSON on line 1, column 19: Cannot construct instance of  (although at least one Creator exists): no String-argument constructor/factory method to deserialize from String value ('x')\n{\"filterGroups\": [{\"filters\": \"x\"}]}    500      400  Invalid input JSON on line 1, column 31: Cannot deserialize value of type <>` from String value (token `JsonToken.VALUE_STRING`)\n{\"filterGroups\": {}}                    200      400  Invalid input JSON on line 1, column 18: Cannot deserialize value of type <>` from Object value (token `JsonToken.START_OBJECT`)\n{\"query\": [\"x\"]}                        500      400  Invalid input JSON on line 1, column 11: Cannot deserialize value of type  from Array value (token `JsonToken.START_ARRAY`)\n{\"query\": 5}                            500      200  {\"total\":0,\"results\":[]}\n```\n\nThe column in each message is a position in the body as sent, spaces included. `{\"query\": 5}` answered the same as `{\"query\": \"5\"}`, where `{}` answered all five contacts, so real reads the number as text rather than ignoring it. `{\"filterGroups\": null}` and `{\"query\": null}` are a 200 page on both sides. The route already refuses through `_error(status, message, category)`; its body carries no `correlationId`, which is not part of this issue.\n\n**Can a client tell?** Yes, by status, for the five 500s. `{\"filterGroups\": {}}` is silent: a client that sends one group as an object instead of a list gets every contact here and a 400 there.\n",
+   "labels": "[\"good first issue\", \"fidelity\", \"hacktoberfest\"]",
+   "comments": 0,
+   "url": "https://github.com/brekkylab/backlot/issues/385"
+  },
+  "repo": {
+   "stars": 303,
+   "language": "Python",
+   "description": "A local emulator for enterprise SaaS APIs — Slack, Gmail, Google Drive, GitHub, Jira, Notion, S3 and more — with the real response shapes, pagination, auth and per-document ACLs, over a corpus you supply."
+  },
+  "labels": {
+   "category": "data_scraping",
+   "kind": "bug",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOPt-O9s8AAAABUQ8Myg",
+  "issue": {
+   "repo": "cuga-project/cuga-agent",
+   "number": 821,
+   "title": "fix(mcp-text): `chunk_text` hangs forever when `overlap >= size`",
+   "body": "> **Time:** ~45 min · **AI API key:** not needed\n\n## What's wrong\n`chunk_text` is a **tool** (a function an AI agent can call) on the shared `text` MCP server. It splits long text into pieces of `size` characters, and consecutive pieces share `overlap` characters.\n\nIf `overlap` is **equal to or bigger than** `size`, the loop never moves forward and the call **never returns**, which ties up the server. An AI agent can easily pass silly arguments like `size=100, overlap=100`, so the tool should reject them with a clear error.\n\n## See it yourself\nSetup: the cuga-apps setup under **New to CUGA?** at the bottom of this issue (the `mcp<2` install is enough). From `cuga-apps/cuga-apps`:\n\n```bash\npython -c \"\nimport signal; signal.alarm(3)   # give up after 3 seconds\nfrom mcp_servers.text.server import chunk_text\nprint(chunk_text('hello world ' * 5, strategy='fixed_chars', size=10, overlap=10))\n\"\n# (prints nothing; the alarm kills it after 3 s and your shell shows \"Alarm clock\" or \"zsh: alarm\".\n#  Without the alarm line it would run forever.)\n```\nThe loop is in [`_chunk_fixed_chars`, line 46](https://github.com/cuga-project/cuga-apps/blob/51b087ee7a34f8f556c350eac0b24fc6901ebed9/cuga-apps/mcp_servers/text/server.py#L35-L47): `start = max(0, end - overlap)` never gets past `start` when `overlap >= size`.\n\n## What to change\n1. In [`cuga-apps/mcp_servers/text/server.py`](https://github.com/cuga-project/cuga-apps/blob/51b087ee7a34f8f556c350eac0b24fc6901ebed9/cuga-apps/mcp_servers/text/server.py#L127-L140), inside `chunk_text`, just before `if strategy == \"fixed_chars\":` (line 129), reject bad arguments the same way the function already rejects an unknown strategy a few lines below:\n   ```python\n   if strategy != \"markdown_headers\" and (overlap < 0 or 0 < size <= overlap):\n       return tool_error(\n           f\"overlap ({overlap}) must be 0 or more and smaller than size ({size}).\",\n           code=\"bad_input\",\n       )\n   ```\n   (`markdown_headers` ignores `overlap`, per the docstring, so it is left out.)\n2. Add one line to the `overlap:` part of the docstring: `Must be smaller than size.`\n3. Add a test to the `TestMcpText` class in [`cuga-apps/tests/test_mcp_tools.py`](https://github.com/cuga-project/cuga-apps/blob/51b087ee7a34f8f556c350eac0b24fc6901ebed9/cuga-apps/tests/test_mcp_tools.py#L413), copying the style of `test_chunk_text_fixed_chars` and using the existing `_expect_error(envelope, code=\"bad_input\")` helper. These tests only run when the full stack is up, so it's fine that pytest skips them on your laptop. The check below is what you run locally.\n\n## How to check you're done\n```bash\npython -c \"\nimport signal; signal.alarm(3)\nfrom mcp_servers.text.server import chunk_text\nprint(chunk_text('hello world ' * 5, strategy='fixed_chars', size=10, overlap=10))\nprint(chunk_text('x' * 1000, strategy='fixed_chars', size=100, overlap=10)[:40])\n\"\n# {\"ok\": false, \"error\": \"overlap (10) must be 0 or more and smaller than size (10).\", \"code\": \"bad_input\"}\n# {\"ok\": true, \"data\": {\"chunks\": [\"xxxxxx     ← normal calls still work\npython -m py_compile mcp_servers/text/server.py tests/test_mcp_tools.py && echo compiled\n```\n\n## PR checklist\n- [ ] Title: `fix(mcp-text): reject overlap >= size in chunk_text instead of hanging`\n- [ ] `git commit -s` (sign-off)\n- [ ] Output of the check above pasted into the PR description\n\n---\n\n<details>\n<summary><b>New to CUGA? What it is, how to set up, and how to submit (2-minute read)</b></summary>\n\n<br>\n\n**What is CUGA?** An open-source framework from IBM Research for building AI agents. You give it *tools* (ordinary Python functions or small web services) and instructions, and it uses a large language model to plan and carry out multi-step tasks with them. This repository, `cuga-apps`, is a gallery of about 35 small demo web apps built on CUGA, plus shared **MCP servers**: small services that each offer a bundle of tools, such as web search, Wikipedia lookup or text chunking. The code lives in a `cuga-apps/` sub-folder of the repo. You don't need to understand CUGA internals to do this issue.\n\n**Set up** (only if this issue says you need to; needs Python 3.13 and [uv](https://docs.astral.sh/uv/getting-started/installation/)):\n\n```bash\ngit clone https://github.com/<your-username>/cuga-apps && cd cuga-apps/cuga-apps   # clone your fork\nuv venv --python 3.13 .venv && source .venv/bin/activate     # CUGA doesn't support Python 3.14 yet\nuv pip install \"mcp>=1.0,<2\" httpx pydantic pytest            # enough for anything under mcp_servers/\n```\n\nKeep the `mcp<2` pin: a plain `pip install mcp` currently installs version 2, which the tool servers don't support yet.\n\n**Submit your PR**\n\n1. Comment \"I'd like to take this\" on this issue, so nobody else starts it.\n2. Fork the repo and create a branch: `git checkout -b fix/<short-topic>` (or `docs/…`, `test/…`, `feat/…`).\n3. Commit **with sign-off**: `git commit -s -m \"<the PR title suggested above>\"`. If you forgot, run `git commit --amend --no-edit --signoff`, then `git push --force-with-lease`.\n4. Run `python -m py_compile` on every Python file you touched.\n5. Open the PR using the suggested title. In the description, write `Closes #<this issue's number>` and paste the output of **How to check you're done**.\n\nStuck for more than 15 minutes? Ask in a comment on this issue; that's what it's for.\n\n</details>\n",
+   "labels": "[\"good first issue\"]",
+   "comments": 0,
+   "url": "https://github.com/cuga-project/cuga-agent/issues/821"
+  },
+  "repo": {
+   "stars": 882,
+   "language": "Python",
+   "description": "CUGA is an open-source generalist agent harness for the enterprise, supporting complex task execution on web and APIs, OpenAPI/MCP integrations, composable architecture, reasoning modes, and policy-aware features."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "bug",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOP_HjxM8AAAABUP5zpA",
+  "issue": {
+   "repo": "wemake-services/django-modern-rest",
+   "number": 1663,
+   "title": "Optional `FileMetadata[]` drops the `encoding` of its files",
+   "body": "### What's wrong?\n\nThe per-file content types a model declares disappear from the schema as soon as the component gets a default value. These two controllers differ only in that default:\n\n```python\nclass _FileModel(pydantic.BaseModel):\n    content_type: Literal['text/plain']\n    size: int\n\n\nclass _Files(pydantic.BaseModel):\n    first_file: _FileModel\n    second_file: _FileModel\n\n\nclass _Required(Controller[PydanticSerializer]):\n    parsers = (MultiPartParser(),)\n\n    def post(self, parsed_file_metadata: FileMetadata[_Files]) -> str: ...\n\n\nclass _Optional(Controller[PydanticSerializer]):\n    parsers = (MultiPartParser(),)\n\n    def post(\n        self,\n        parsed_file_metadata: FileMetadata[_Files | None] = None,\n    ) -> str: ...\n```\n\n`requestBody.content['multipart/form-data']` for each:\n\n```text\n_Required  \"encoding\": {\"first_file\":  {\"contentType\": \"text/plain\"},\n                        \"second_file\": {\"contentType\": \"text/plain\"}}\n_Optional  no \"encoding\" key at all\n```\n\nThe schema itself is fine — `first_file` and `second_file` are still `{\"type\": \"string\", \"format\": \"binary\"}`, inside the `anyOf` member that #1647 taught `replace_schema` to build. Only `encoding` is lost.\n\n`_encoding` is the one place that never learned about those unions: https://github.com/wemake-services/django-modern-rest/blob/1b1f699b17c4a7d380f531248bfa4edd3d302064/dmr/files.py#L188-L198\n\n```python\nreturn {\n    property_name: Encoding(content_type=content_type)\n    for property_name in (schema.properties or [])\n    if (content_type := content_types(model, property_name)) is not None\n} or None\n```\n\nBoth halves of that comprehension give up on a union, for different reasons:\n\n1. `schema.properties` is empty. `replace_schema` moves the properties into the `any_of` members, which it walks through `_replace_members` ([L178](https://github.com/wemake-services/django-modern-rest/blob/1b1f699b17c4a7d380f531248bfa4edd3d302064/dmr/files.py#L178)), and `_encoding` has no equivalent.\n2. *model* is the union itself, so `content_types` resolves nothing: `get_type_hints(_Files | None)` raises `TypeError: ... does not have annotations`, and the `suppress(Exception)` in it turns that into `None`. Measured: `content_types(_Files, 'first_file')` is `'text/plain'`, `content_types(_Files | None, 'first_file')` is `None`.\n\nSo fixing only the schema walk wouldn't produce anything either.\n\nLow severity: `encoding` is optional in OpenAPI, and a client falls back to the default `contentType` for a binary string.\n\n### How it should be?\n\n`_Optional` documents the same `encoding` as `_Required`. A fix has to unwrap the union on both sides — collect property names from the `any_of` / `one_of` members the way `_replace_members` does, and hand `content_types` a member model rather than the union.\n\nWorth deciding while in there: what a union of two *different* file models should produce, when both members declare a `content_type` for the same property name. Merging them into one comma-separated `contentType` matches what `content_types` already does for a `Literal` of several types.\n\n### Used versions\n\n`django-modern-rest` 0.15.0, `pydantic` 2.13.5.\n\nReproduced on https://github.com/wemake-services/django-modern-rest/commit/1b1f699b17c4a7d380f531248bfa4edd3d302064.\n\n### OS information\n\nmacOS 27.0",
+   "labels": "[\"bug\", \"good first issue\"]",
+   "comments": 0,
+   "url": "https://github.com/wemake-services/django-modern-rest/issues/1663"
+  },
+  "repo": {
+   "stars": 1480,
+   "language": "Python",
+   "description": "Modern REST framework for Django with types and async support!"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "bug",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOR0lbo88AAAABUKveEw",
+  "issue": {
+   "repo": "NovaCode37/Prism-platform",
+   "number": 434,
+   "title": "OPSEC score says 100 / MINIMAL when nothing was actually checked",
+   "body": "`OpsecScoreCalculator` in `modules/opsec_score.py` starts at 100 and only subtracts. When a scan produced no data at all, nothing gets subtracted, so the report says **100 / MINIMAL**.\n\nThat happens more often than it sounds:\n\n- every module failed because the network or the proxy was down;\n- the target type had no applicable modules;\n- a typo in `-m` ran nothing (#432).\n\nIn all three the honest answer is \"not assessed\", and a reader of an OSINT report will take 100 as \"this target has nothing exposed\".\n\nWhat to do:\n\n- Count how many modules actually returned data (not `error`, not `skipped`) before scoring.\n- If none did, return a result with `score: null` and `risk_level: \"NOT_ASSESSED\"`, plus the reason.\n- Make sure the frontend score card, the HTML/PDF report and the CLI summary show that state instead of crashing on `null`. `grep -rn risk_level` finds the consumers.\n\nDone when a scan with zero successful modules reports NOT_ASSESSED everywhere, a scan with results scores exactly as before, and there is a test for each.\n",
+   "labels": "[\"bug\", \"help wanted\", \"python\", \"hacktoberfest\"]",
+   "comments": 0,
+   "url": "https://github.com/NovaCode37/Prism-platform/issues/434"
+  },
+  "repo": {
+   "stars": 234,
+   "language": "Python",
+   "description": "Self-hosted OSINT platform. Point it at a domain, IP, email, phone or username and 26 modules run in parallel: WHOIS, DNS, threat intel, breaches, username search. One dashboard, an exposure score, an entity graph, HTML and PDF reports."
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "bug",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOIPDwls8AAAABRn-Mxw",
+  "issue": {
+   "repo": "langchain-ai/langchain",
+   "number": 40531,
+   "title": "core: `finalize_tool_call_chunk` coerces `id=None` to `\"\"`, collapsing parallel id-less tool calls",
+   "body": "### Submission checklist\n\n- [x] This is a bug, not a usage question.\n- [x] I added a clear and descriptive title that summarizes this issue.\n- [x] I used the GitHub search to find a similar question and didn't find it.\n- [x] I am sure that this is a bug in LangChain rather than my code.\n- [x] The bug is not resolved by updating to the latest stable version of LangChain (or the specific integration package).\n- [x] This is not related to the langchain-community package.\n- [x] I posted a self-contained, minimal, reproducible example. A maintainer can copy it and run it AS IS.\n\n### Package (Required)\n\n- [ ] langchain\n- [ ] langchain-openai\n- [ ] langchain-anthropic\n- [ ] langchain-classic\n- [x] langchain-core\n- [ ] langchain-model-profiles\n- [ ] langchain-tests\n- [ ] langchain-text-splitters\n- [ ] langchain-chroma\n- [ ] langchain-deepseek\n- [ ] langchain-exa\n- [ ] langchain-fireworks\n- [ ] langchain-groq\n- [ ] langchain-huggingface\n- [ ] langchain-mistralai\n- [ ] langchain-nomic\n- [ ] langchain-ollama\n- [ ] langchain-openrouter\n- [ ] langchain-perplexity\n- [ ] langchain-qdrant\n- [ ] langchain-xai\n- [ ] Other / not sure / general\n\n### Related Issues / PRs\n\n- langchain-ai/deepagents#6302 - downstream collision case \n- langchain-ai/deepagents#6316 - fix already merged at deepagents layer\n\n### Reproduction Steps / Example Code (Python)\n\n```python\nfrom langchain_core.language_models._compat_bridge import chunks_to_events\nfrom langchain_core.language_models.chat_model_stream import ChatModelStream\nfrom langchain_core.messages import AIMessageChunk\nfrom langchain_core.messages.tool import tool_call_chunk\nfrom langchain_core.outputs import ChatGenerationChunk\n\n\ndef id_less_chunk(index, args):\n    # Mirrors what a provider parser yields when the upstream SSE frame\n    # had no `id` (e.g. args-delta frames after a lost opener).\n    return ChatGenerationChunk(\n        message=AIMessageChunk(\n            content=\"\",\n            tool_call_chunks=[tool_call_chunk(name=\"search\", args=args, id=None, index=index)],\n        ),\n    )\n\n\nv1_chunks = [\n    id_less_chunk(0, '{\"q\": \"first\"}'),\n    id_less_chunk(1, '{\"q\": \"second\"}'),\n]\n\nstream = ChatModelStream()\nfor event in chunks_to_events(iter(v1_chunks), message_id=\"msg_demo\"):\n    stream.dispatch(event)\n\nfor i, tc in enumerate(stream.output.tool_calls):\n    print(f\"tool_calls[{i}]: id={tc['id']!r}  name={tc['name']!r}\")\n```\n\n### Error Message and Stack Trace (if applicable)\n\n```shell\nObserved output from the MRE on unpatched master (langchain-core 1.6.3):\n\ntool_calls[0]: id=''  name='search'\ntool_calls[1]: id=''  name='search'\n\nBoth parallel tool_calls collapse onto the same empty string, so any downstream keyed off `tool_call[\"id\"]` cannot tell them apart.\n```\n\n### Description\n\n### Summary\n\n`langchain_core.language_models._compat_bridge.finalize_tool_call_chunk` coerces `id_=None` to `ToolCall.id=\"\"` (and `ServerToolCall.id=\"\"`). This normalization is applied on every path that goes through the compat bridge — `stream_v2`, `stream_events(version=\"v3\")`, and LangGraph `stream_mode=\"messages\"` — for every provider that doesn't implement the native `_stream_chat_model_events` hook (currently: all of them). Downstream consumers that key off `tool_call[\"id\"]` cannot tell two id-less parallel tool_calls apart (concrete case: `langchain-ai/deepagents#6302`, where `FilesystemMiddleware` offloads all collided on `/large_tool_results/unknown`).\n\n### Where\n\n`libs/core/langchain_core/language_models/_compat_bridge.py`, `finalize_tool_call_chunk`:\n\n```python\n# tool_call finalize\nfinalized_tc = ToolCall(\n    type=\"tool_call\",\n    id=id_ or \"\",       # ← None -> \"\"\n    name=name or \"\",\n    args=parsed,\n)\n\n# server_tool_call finalize\nfinalized_stc = ServerToolCall(\n    type=\"server_tool_call\",\n    id=id_ or \"\",       # ← None -> \"\"\n    name=name or \"\",\n    args=parsed,\n)\n```\n\n### Why this is a bug\n\n**1. Inconsistent with the sibling branch in the same function.** The `InvalidToolCall` branch of `finalize_tool_call_chunk` preserves `id=id_` (keeps `None`); only the `tool_call` and `server_tool_call` branches coerce. This looks like a local oversight rather than a deliberate policy.\n\n**2. Violates the declared type contract.** `ToolCall.id: str | None` (`langchain_core.messages.tool` line 231) — `None` is a valid value. The coercion silently rewrites it.\n\n**3. Provider-layer workarounds are already fragmenting.** Three partners synthesize a UUID themselves when the provider chunk didn't carry an id, each in a different way:\n\n- `libs/partners/mistralai/langchain_mistralai/chat_models.py:217` — `uuid.uuid4().hex[:]`, conditional\n- `libs/partners/ollama/langchain_ollama/chat_models.py:220` — `str(uuid4())`, unconditional\n- `langchain-google-genai/chat_models.py` (external repo) — `str(uuid.uuid4())`, conditional\n\nThe rest (openai, anthropic, deepseek, fireworks, groq, perplexity, xai, openrouter, ...) rely on the provider always supplying an id. When that assumption breaks (e.g. LiteLLM proxy dropping the first tool_call SSE frame, per LiteLLM#39796, or community/self-hosted servers) the v3 stream user gets `id=\"\"` tool_calls.\n\n**4. Downstream collision, concrete case.** `langchain-ai/deepagents#6302`: `FilesystemMiddleware`'s offload does `if message.tool_call_id: ... else \"unknown\"`. Two parallel `id=\"\"` tool messages both hit the `\"unknown\"` bucket, and the second offload silently overwrites the first at `/large_tool_results/unknown`.\n\n### Proposed fix\n\nTwo lines. Fall back to a synthesized hex uuid when `id_` is falsy:\n\n```python\nimport uuid\n\n# tool_call branch\nid=id_ or uuid.uuid4().hex,\n\n# server_tool_call branch\nid=id_ or uuid.uuid4().hex,\n```\n\nBehavior:\n\n- Provider supplied a valid id (`id_` truthy) → unchanged.\n- Provider supplied no id (`id_=None`) → synthesized hex uuid, downstream is guaranteed a distinct `str` id.\n- No breaking change.\n- The three partners that already synthesize their own uuid still do so at the provider layer; their outputs are truthy so the new fallback is a no-op for them. Their per-partner workarounds become redundant and can be cleaned up in follow-ups (out of scope here).\n\n### Note - related sites downstream\n\n`libs/core/langchain_core/language_models/chat_model_stream.py:925, 1088` carry `tcb.get(\"id\", \"\")` / `tc.get(\"id\", \"\")` fallbacks too. Empirically these don't fire in practice: by the time execution reaches them the upstream `finalize_tool_call_chunk` has already produced an `id` key on the dict (either `\"\"` under the current code or the synthesized uuid under the proposed fix), so `dict.get(key, default)` returns the already-present value and the `\"\"` default is unreachable. They're defensive fallbacks that go dead once `finalize_tool_call_chunk` is fixed. Whether to align them for symmetry is a maintainer call.\n\n\n### System Info\n\nSystem Information\n------------------\n> OS:  Windows\n> OS Version:  10.0.26200\n> Python Version:  3.12.7 (tags/v3.12.7:0b05ead, Oct  1 2024, 03:06:41) [MSC v.1941 64 bit (AMD64)]\n\nPackage Information\n-------------------\n> langchain_core: 1.6.3 (reproduced against upstream/master)\n> langsmith: 0.11.1\n> langchain_protocol: 0.0.18\n> langchain_tests: 1.1.9\n> langchain_text_splitters: 1.1.2\n\nOther Dependencies (relevant)\n-----------------------------\n> pydantic: 2.13.4\n> typing-extensions: 4.16.0\n\n### Social handles (optional)\n\n_No response_",
+   "labels": "[\"bug\", \"core\", \"external\"]",
+   "comments": 10,
+   "url": "https://github.com/langchain-ai/langchain/issues/40531"
+  },
+  "repo": {
+   "stars": 147345,
+   "language": "Python",
+   "description": "The agent engineering platform."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "bug",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOPljVzM8AAAABUTtATw",
+  "issue": {
+   "repo": "openstory-so/openstory",
+   "number": 1948,
+   "title": "Adopt @tanstack/ai-mcp server for /mcp",
+   "body": "## What\n\nBuild `/mcp` on `createMCPServer` from `@tanstack/ai-mcp/server` (0.6.0). Today we wire it by hand on `@modelcontextprotocol/server` 2.0.0 (`McpServer` + `createMcpHandler`), in `src/platform/server/mcp/`.\n\n## Why\n\n- Tools become `toolDefinition().server()`, the same tool shape the rest of the app already uses with `@tanstack/ai`. That means one way to define a tool, not two.\n- The package keeps the types of the tools it serves, so `createMCPClient({ server })` gets typed tool names. We can use that in tests and in our own agents.\n- Less of our own code: `server.ts` stays small, and `tool-context.ts` plus the per-tool `register*` calls should fold into plain tool definitions.\n- It is built on `@modelcontextprotocol/server` ^2.0.0, the version we already pin. No second SDK comes in.\n\n## What to keep (ours, not the package's)\n\n- `handle.ts` pipeline: Origin check → auth → JWT rate limit → CORS, and the 401 + `WWW-Authenticate` on GET/HEAD (Grok probe).\n- Our auth (`authenticateMcpRequest`: Bearer JWT + `osk_` keys, see `docs/architecture/oauth-server.md`). Pass the verified identity through `server.handle(request, { authInfo, context })`. Do **not** switch to the package's `jwtVerifier`, because it would not accept `osk_` keys.\n- Each request still gets its own `createScopedDb`, passed in through `context`.\n\n## Check before starting\n\n- `sessions: 'reject'`. We run many Worker isolates, so an in-memory 2025 session cannot be found on the next request. Confirm this matches what we do today.\n- `waitUntil` → `ctx.waitUntil`.\n- `CfWorkerJsonSchemaValidator`: does `createMCPServer` let us set the validator? workerd cannot run Ajv codegen. If it can't be set, that is a blocker to raise upstream.\n- Server heap (#1893): `@tanstack/ai-mcp` also pulls in `@modelcontextprotocol/client` and `jose`. Import only `/server` and measure with `scripts/measure-worker-heap.ts`.\n- The package has a TanStack Intent skill (`ai-mcp`). Load it before starting.\n\n## Done when\n\n- `server.ts` builds the server with `createMCPServer`, and every read tool (#1458) is a `toolDefinition().server()`.\n- The existing `src/platform/server/mcp/*.test.ts` pass, or are moved over with the same coverage.\n- `whoami` and the read tools work from Claude and from Grok against a preview deploy.\n",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/openstory-so/openstory/issues/1948"
+  },
+  "repo": {
+   "stars": 655,
+   "language": "TypeScript",
+   "description": "Open-source AI-powered video sequence platform built with TanStack Start"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDODhKIWM8AAAABPwkRzw",
+  "issue": {
+   "repo": "backstage/backstage",
+   "number": 35480,
+   "title": "Snyk vulnerability [snyk:lic:npm:rollup-plugin-dts:LGPL-3.0]",
+   "body": "\n## Affecting Packages/Plugins\n\n* [example-app](packages/app/package.json)\n* [example-app-legacy](packages/app-legacy/package.json)\n* [@backstage/cli-defaults](packages/cli-defaults/package.json)\n* [@backstage/cli-module-build](packages/cli-module-build/package.json)\n* [techdocs-cli-embedded-app](packages/techdocs-cli-embedded-app/package.json)\n\nLGPL-3.0 license\n",
+   "labels": "[\"snyk-vulnerability\", \"help wanted\"]",
+   "comments": 0,
+   "url": "https://github.com/backstage/backstage/issues/35480"
+  },
+  "repo": {
+   "stars": 34535,
+   "language": "TypeScript",
+   "description": "Backstage is an open framework for building developer portals"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "chore",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOKcVlZM8AAAABUQC5Yw",
+  "issue": {
+   "repo": "hanishrao/collective-ai-tools",
+   "number": 385,
+   "title": "Add MCP server: Parlel",
+   "body": "## Parlel MCP\n\n- **Name:** Parlel / com.parlel/parlel\n- **Homepage:** https://parlel.com\n- **MCP (Streamable HTTP, no auth):** https://api.parlel.com/mcp\n- **Repo:** https://github.com/Parlel/parlel-mono\n- **Docs:** https://parlel.com/guides/parlel-mcp-guide\n- **Contact:** hello@parlel.com\n- **Tagline:** Free MCP to search people, companies, jobs, and agents on Parlel.\n- **Tools:** search_jobs, get_job, search_companies, get_company, search_people, get_person, search_agents, get_agent\n- **Transport:** streamable-http\n- **Auth:** none\n- **Official registry:** com.parlel/parlel",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/hanishrao/collective-ai-tools/issues/385"
+  },
+  "repo": {
+   "stars": 244,
+   "language": "TypeScript",
+   "description": "Search across curated tools, MCP servers, prompts, skills, and trending repos, one query, every corner of the ecosystem."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOQqoujc8AAAABQkQpaA",
+  "issue": {
+   "repo": "langchain-ai/lca-lc-foundations",
+   "number": 94,
+   "title": "OrcaRouter provider support for Introduction to LangChain",
+   "body": "This repo is the companion to LangChain Academy's *Introduction to LangChain* course, taking a learner from a first `init_chat_model(\"gpt-5-nano\")` call to a production email assistant. Because it is teaching material, the on-ramp matters as much as the lessons: `env_utils.py` checks Python version, virtualenv, packages, and API keys before anyone opens a notebook — the friction that decides whether a student finishes Module 1.\n\nThat provider layer is already taught as swappable: Lesson 1.1 moves from `gpt-5-nano` to `claude-sonnet-4-6` to `ChatGoogleGenerativeAI`, and Module 3's dynamic-models lesson picks a large or standard model at runtime through a `@wrap_model_call` middleware. Your README's \"Model Providers\" note already says other providers work with updated keys and some code changes, so a student who would rather not hold three provider accounts is the natural audience here.\n\n**Proposal**\n\nI'd like to suggest adding OrcaRouter as an optional provider. It would sit alongside the existing OpenAI, Anthropic, and Google paths — it does not replace, remove, or change any provider you currently support, and students who ignore it see no difference.\n\nI'm an engineer on the OrcaRouter team.\n\nCapabilities that seem genuinely relevant here:\n\n- **One endpoint, many models** (chat, reasoning, image, and video) — a student could run every module with a single key instead of juggling OpenAI, Anthropic, and Google credentials.\n- **Automatic routing and provider failover** — useful for a classroom, where one degraded upstream otherwise stalls a whole cohort mid-notebook.\n- **Usage tracking and budgets** — an instructor can see and cap spend across a class rather than per-student keys.\n\n**Integration fit**\n\nOrcaRouter exposes an OpenAI-compatible API and uses standard API-key authentication. The natural fit is your existing abstraction: `init_chat_model` with the `openai` provider plus a base URL and an `ORCAROUTER_API_KEY` in `.env`, mirroring the per-provider keys already listed in `example.env`. To be clear, I have not implemented or tested anything — this is only a proposal.\n\nOrcaRouter is already used across open source, including Dify, models.dev, and OpenCode, if that helps as a reference point.\n\n**Disclosure**\n\nOrcaRouter runs an optional open-source partner program: approved projects can receive a 5% revenue share from usage attributed to their integration. Participating is not a prerequisite for this integration, and we're glad to follow whatever disclosure or governance rules the project prefers.\n\nMore detail: https://www.orcarouter.ai/built-with\n\nWould you be open to this? I'm happy to answer questions and, if you approve, submit an implementation PR.\n",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/langchain-ai/lca-lc-foundations/issues/94"
+  },
+  "repo": {
+   "stars": 658,
+   "language": "TypeScript",
+   "description": ""
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "medium",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDORbWIAM8AAAABTvNA5g",
+  "issue": {
+   "repo": "YichengYang-Ethan/oracle3-prediction-market-agent",
+   "number": 61,
+   "title": "Compare LLM and market calibration on resolved contracts",
+   "body": "Oracle3 includes LLM-driven strategies, and prediction-market prices are themselves probability forecasts. It is an open question when an LLM's probability should move a price estimate at all.\n\n**Question.** On resolved Kalshi and Polymarket contracts, how does an LLM's stated probability compare with the market price in calibration and sharpness, and does combining them help?\n\n**Suggested approach**\n- Use contracts that resolved after the model's training cut-off to avoid leakage.\n- Record the market price at fixed horizons before resolution and the LLM's probability given the same information.\n- Compare Brier score, log score and reliability curves; test simple combinations.\n\n**Useful output:** the evaluation dataset (market ids, horizons, prices, forecasts, outcomes) and a short note.\n",
+   "labels": "[\"help wanted\", \"open-problem\"]",
+   "comments": 0,
+   "url": "https://github.com/YichengYang-Ethan/oracle3-prediction-market-agent/issues/61"
+  },
+  "repo": {
+   "stars": 259,
+   "language": "Python",
+   "description": "Oracle3: open-source trading engine and MCP server for prediction markets. Finds fee-adjusted no-arbitrage violations across related event contracts and trades them live on Kalshi, Polymarket and Solana, or on paper, under pre-trade risk limits. 13 MCP tools, JSON CLI, agent skills, 600+ tests."
+  },
+  "labels": {
+   "category": "prediction_markets_finance",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOOwsln88AAAABUPqL1Q",
+  "issue": {
+   "repo": "lingdojo/kana-dojo",
+   "number": 31365,
+   "title": "[good first issue] 🗻 Add new Grammar Point 850 (good-first-issue)",
+   "body": "## 🟢 Good First Issue: Add Grammar Point #85 — Beginner-Friendly Open Source Contribution\n\n![Time: <1 minute](https://img.shields.io/badge/Time-<1_minute-brightgreen) ![Difficulty: Beginner](https://img.shields.io/badge/Difficulty-Beginner-blue) ![No Code Required](https://img.shields.io/badge/No_Code-Required-orange)\n\n> 🟢 **No prerequisites needed!** You don't need to clone the repo, install anything, or write code.\n> This entire contribution can be done from your browser in under 60 seconds.\n\n**Labels:** good first issue, help wanted, hacktoberfest  \n**Language:** JSON (no coding required)  \n**Time:** < 1 minute  \n**Skill Level:** Absolute beginner  \n\n---\n## 📖 Add New Grammar Point\n\n**Category:** Community Contribution - Grammar  \n**Difficulty:** Easy (good first issue!)  \n**Estimated Time:** <1 min\n\n---\n\n### 🎯 Your Task\n\nAdd this grammar explanation to our learner-friendly grammar list!\n\n### The Grammar Point\n\n> \"〜に限って\" means \"only / exclusively\".\n\n### 📝 Instructions\n\n1. Star our repo ⭐\n2. Fork our repo 🍴\n3. Open [`community/content/japanese-grammar.json`](../blob/main/community/content/japanese-grammar.json) in your browser (click the link!)\n4. Scroll to the bottom of the file and paste the following grammar string just before the closing `]`:\n\n```json\n\"\"〜に限って\" means \"only / exclusively\".\"\n```\n\n5. Add a comma after the previous last entry in the array (so the JSON stays valid)\n6. Save the file and commit the changes\n7. Submit a Pull Request with title: `content: add new grammar point`\n8. Link this issue using `Closes #<issue_number>`\n9. Wait for review!\n\n---\n\n### 🚀 Quick Info\n\n| | |\n|---|---|\n| **Difficulty** | Beginner / Easy |\n| **Time** | < 1 minute |\n| **Language** | TypeScript, JSON |\n| **Framework** | Next.js, React |\n| **Good for** | First-time contributors, Hacktoberfest |\n\n> **No coding experience required!** This is a simple JSON/data file edit — perfect for your first open source contribution. No setup is required. \n\n**Questions?** Comment below and we'll help! 🙌\n\n_This is a beginner-friendly, good first issue for first-time open source contributors. No coding experience needed — just edit a JSON file! See our [Beginner Contributing Guide](../blob/main/docs/CONTRIBUTING-BEGINNERS.md) for step-by-step instructions._",
+   "labels": "[\"help wanted\", \"good first issue\", \"hacktoberfest\", \"community\", \"low hanging fruit\", \"up-for-grabs\", \"first-timers-only\", \"good-first-issue\"]",
+   "comments": 1,
+   "url": "https://github.com/lingdojo/kana-dojo/issues/31365"
+  },
+  "repo": {
+   "stars": 3530,
+   "language": "TypeScript",
+   "description": "Aesthetic, minimalist platform for learning Japanese inspired by Duolingo and Monkeytype, built with Next.js and sponsored by Vercel. Beginner-friendly with plenty of good first issues - all contributions are welcome!"
+  },
+  "labels": {
+   "category": "other",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOLouOrc8AAAABTe7htQ",
+  "issue": {
+   "repo": "DenisovAV/flutter_gemma",
+   "number": 551,
+   "title": "Tool calling crashes on Linux x86_64 (`native-v0.17.x`)",
+   "body": "On Linux, the first decoded token of a conversation created with `tools` kills the process. Generation without tools, embeddings, STT and TTS work on the same machine.\n\n**Environment**\n- `flutter_gemma_litertlm` 1.8.1 / 1.8.2 (`native-v0.17.1`, `native-v0.17.1-a` — the Linux archive is byte-identical in both)\n- Ubuntu 22.04, x86_64 (GCE n1-standard-4), CPU backend\n- `litertlm_native_tools_test.dart`: all 6 cases (FunctionGemma, Mobile Actions, Tiny Garden, Gemma 4) \"did not complete\"\n\n**What the process dies on**\n```\ntraps: execution_threa trap invalid opcode ip:... in libGemmaModelConstraintProvider.so[40eeaa,...]\n```\n`0x40eeaa` is a `ud2` after a bounds check in `fst::ImplToFst<VectorFstImpl<...>>::Final(int)` — a hardened-libc++ assertion (FST state id out of range), not a missing CPU feature.\n\n**What I checked**\n- The shipped provider's `.text` is byte-identical to upstream LiteRT-LM's prebuilt at `4453b286` (only `RUNPATH $ORIGIN` is added), and it has the new `LogitMask` ABI.\n- The same models pass 6/6 on macOS and the iOS Simulator.\n- The Linux `libLiteRtLm.so` I build links `libstdc++.so.6`; the provider is Google libc++ (`std::__u`). The other platforms' runtimes are libc++ like the provider, which would explain why only Linux breaks — not verified yet.\n\nThis has not been caught before because tool calling had never been run on Linux.\n",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/DenisovAV/flutter_gemma/issues/551"
+  },
+  "repo": {
+   "stars": 628,
+   "language": "JavaScript",
+   "description": "The Flutter plugin allows running the Gemma AI model locally on a device from a Flutter application."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "bug",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOS3TU6c8AAAABUNQWxA",
+  "issue": {
+   "repo": "reticlehq/reticle",
+   "number": 1270,
+   "title": "Let the daemon use a specific Chromium executable",
+   "body": "3.4.0 falls back to an installed Chrome or Edge when Playwright's own build is missing. Some machines have neither in the usual place: a Linux sandbox with a preinstalled Chromium at a custom path, where `playwright install` isn't allowed, or an older macOS where Playwright's pinned build won't install. There's no way to point Reticle at the browser that's there.\n\n### Where\n\n`server/src/chromium-launch-options.ts` (returns `headless`, `args`, `channel`), `server/src/launch-chromium.ts`, and doctor's browser probe.\n\n### Done when\n\nAn env var (for example `RETICLE_CHROMIUM_PATH`, added to `ReticleEnv` in `core`) sets `executablePath`. The bundled-revision probe is skipped when it's set, and doctor honours it too. Document it in `docs/environment.mdx`.\n",
+   "labels": "[\"enhancement\", \"good first issue\", \"agent-reported\", \"area/server\", \"P2\", \"hacktoberfest\"]",
+   "comments": 0,
+   "url": "https://github.com/reticlehq/reticle/issues/1270"
+  },
+  "repo": {
+   "stars": 1024,
+   "language": "TypeScript",
+   "description": "AI agents can generate code, but still struggle to understand what they build. Reticle brings Jev-style machine-native runtime perception to web & desktop applications."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOIPDwls8AAAABSHXtdw",
+  "issue": {
+   "repo": "langchain-ai/langchain",
+   "number": 40675,
+   "title": "anthropic: `FilesystemClaudeTextEditorMiddleware` reads and writes files with the locale encoding so non ascii content breaks on non utf8 systems",
+   "body": "### Submission checklist\n\n- [x] This is a bug, not a usage question.\n- [x] I added a clear and descriptive title that summarizes this issue.\n- [x] I used the GitHub search to find a similar question and didn't find it.\n- [x] I am sure that this is a bug in LangChain rather than my code.\n- [x] The bug is not resolved by updating to the latest stable version of LangChain (or the specific integration package).\n- [x] This is not related to the langchain-community package.\n- [x] I posted a self-contained, minimal, reproducible example. A maintainer can copy it and run it AS IS.\n\n### Package (Required)\n\n- [ ] langchain\n- [ ] langchain-openai\n- [x] langchain-anthropic\n- [ ] langchain-classic\n- [ ] langchain-core\n- [ ] langchain-model-profiles\n- [ ] langchain-tests\n- [ ] langchain-text-splitters\n- [ ] langchain-chroma\n- [ ] langchain-deepseek\n- [ ] langchain-exa\n- [ ] langchain-fireworks\n- [ ] langchain-groq\n- [ ] langchain-huggingface\n- [ ] langchain-mistralai\n- [ ] langchain-nomic\n- [ ] langchain-ollama\n- [ ] langchain-openrouter\n- [ ] langchain-perplexity\n- [ ] langchain-qdrant\n- [ ] langchain-typesafe\n- [ ] langchain-xai\n- [ ] Other / not sure / general\n\n### Related Issues / PRs\n\n#33510 added the filesystem middleware\n#40588 and #40664 are the same kind of problem (locale encoding) but in the test suite not in the library\n\n\n### Reproduction Steps / Example Code (Python)\n\n```python\n# run with a non utf8 locale, on windows just use a cp1252 or cp936 system\n# on mac or linux you can simulate it with\n#   LC_ALL=C LANG=C PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 python repro.py\nimport locale, tempfile\nfrom pathlib import Path\nfrom langchain_anthropic.middleware import FilesystemClaudeTextEditorMiddleware\n\nprint(\"locale encoding:\", locale.getencoding())\nroot = tempfile.mkdtemp()\nmw = FilesystemClaudeTextEditorMiddleware(root_path=root)\n\n# 1. the model creates a file with some non ascii text\ntry:\n    mw._handle_create({\"path\": \"/notes.md\", \"file_text\": \"# Café ☕\\nnaïve 🙂\"}, \"tc1\")\n    print(\"create: ok\")\nexcept Exception as e:\n    print(\"create FAILED:\", type(e).__name__, e)\n\n# 2. the model views / edits an existing utf8 file\n(Path(root) / \"utf8.md\").write_bytes(\"# Café ☕\\nnaïve 🙂\\n\".encode(\"utf-8\"))\nfor cmd, args in [\n    (\"view\", {\"path\": \"/utf8.md\"}),\n    (\"str_replace\", {\"path\": \"/utf8.md\", \"old_str\": \"naïve\", \"new_str\": \"naive\"}),\n    (\"insert\", {\"path\": \"/utf8.md\", \"insert_line\": 1, \"new_str\": \"x\"}),\n]:\n    try:\n        getattr(mw, f\"_handle_{cmd}\")(args, \"tc\")\n        print(f\"{cmd}: ok\")\n    except Exception as e:\n        print(f\"{cmd} FAILED:\", type(e).__name__, str(e)[:90])\n```\n\n### Error Message and Stack Trace (if applicable)\n\n```shell\nlocale encoding: US-ASCII\ncreate FAILED: UnicodeEncodeError 'ascii' codec can't encode character '\\xe9' in position 5: ordinal not in range(128)\nview FAILED: ValueError Cannot decode file /utf8.md: 'ascii' codec can't decode byte 0xc3 in position 5: ordinal not in range(128)\nstr_replace FAILED: UnicodeDecodeError 'ascii' codec can't decode byte 0xc3 in position 5: ordinal not in range(128)\ninsert FAILED: UnicodeDecodeError 'ascii' codec can't decode byte 0xc3 in position 5: ordinal not in range(128)\n\nsame script with a normal utf8 locale\nlocale encoding: UTF-8\ncreate: ok\nview: ok\nstr_replace: ok\ninsert: ok\n```\n\n### Description\n\ni was using the anthropic text editor middleware and noticed that all the file handlers in _FilesystemClaudeFileToolMiddleware call Path.read_text() and Path.write_text() without any encoding so python falls back to the locale encoding of the machine on mac and most linux thats utf8 so nothing happen but on windows its usually cp1252 or cp936 and then things break as soon as the model writes or reads anything that is not plain ascii like accents emoji or chinese text\n\nwhat happen in practice\n\ncreate with non ascii text raise UnicodeEncodeError and the tool call crash\nview on a valid utf8 file raise ValueError: Cannot decode file even tho the file is fine\nstr_replace and insert dont even catch it like view does they raise a raw UnicodeDecodeError\non a locale like cp1252 that can encode most latin chars the file get silently written in cp1252 so any other tool or editor that expect utf8 read garbage\nthis affect FilesystemClaudeTextEditorMiddleware and FilesystemClaudeMemoryMiddleware since they share the same base the State* versions are fine because they keep files in agent state\n\nwhat i think the fix should be\n\npass encoding=\"utf-8\" to every read_text and write_text in _handle_view _handle_create _handle_str_replace and _handle_insert\ncatch UnicodeDecodeError in str_replace and insert the same way view already does so the model get a clean error instead of a traceback\nadd unit tests that write utf8 bytes with non ascii content and check the handlers work and that create produce utf8 bytes on disk\ni reproduced it on master and i have the change with tests ready if a maintainer is ok with the approach i would like to be assigned to it\n\n\n\n### System Info\n\nSystem Information\n------------------\n> OS:  Darwin\n> OS Version:  Darwin Kernel Version 25.6.0: Sat Jul 11 15:27:27 PDT 2026; root:xnu-12377.161.13~4/RELEASE_ARM64_T6041\n> Python Version:  3.12.13 (main, Jul 23 2026, 14:33:47) [Clang 22.1.3 ]\n\nPackage Information\n-------------------\n> langchain_core: 1.6.3\n> langchain: 1.4.1\n> langsmith: 0.8.18\n> langchain_anthropic: 1.7.2\n> langchain_protocol: 0.0.18\n> langchain_tests: 1.1.9\n> langgraph_sdk: 0.4.2\n\nOther Dependencies\n-------------------\n> anthropic: 1.1.0\n\n\n### Social handles (optional)\n\nhttps://www.linkedin.com/in/anis-bouzidi-a2a877273/",
+   "labels": "[\"bug\", \"anthropic\", \"external\"]",
+   "comments": 5,
+   "url": "https://github.com/langchain-ai/langchain/issues/40675"
+  },
+  "repo": {
+   "stars": 147345,
+   "language": "Python",
+   "description": "The agent engineering platform."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "bug",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOOtoBIM8AAAABSozg5Q",
+  "issue": {
+   "repo": "Open-Finance-Lab/AgenticTrading",
+   "number": 524,
+   "title": "fix(backtests): a timed-out run leaves no record, so My Agents says \"No backtests yet\"",
+   "body": "Reported symptom: an hour-long DeepSeek V4 Pro backtest ended and the agent's My Agents card reads **\"No backtests yet.\"**\n\nThat copy is false, and it is the only thing left on the surface the user opened. A killed child never reaches the `saving` phase, so no `agent_runs` row is written — verified in prod: 0 rows for `agent_20260922_202119_fc7bd724`, and 0 rows for that agent's session. `renderAgentCardBody` falls through to the empty state whenever `run_count` / `latest_run` are absent (`app.js:1452`), which is also the state of an agent that has never run. The two are indistinguishable.\n\nThe explanation does exist — but only in `_recent_slots`, a process-local dict capped at 50 (`api/routers/backtests.py:990-996`), keyed by `live_run_id`, surfaced on the Backtest tab. `GET /backtest/status` still answers correctly today:\n\n```json\n{\"running\":false,\"timed_out\":true,\"elapsed_seconds\":3605,\n \"message\":\"Backtest stopped at the time limit.\",\n \"timeout\":{\"limit_seconds\":3600,\"billing_mode\":\"platform_credits\",\n            \"spent_micro\":81130,\"model_calls\":38}}\n```\n\nIt dies on the next redeploy, and reaching it requires holding the run id on the right tab. The browser polled once after the kill (21:22:21 UTC) and stopped.\n\nSo a run that spent an hour and 81,130 micro-credits is, on the page the user actually goes to, identical to never having happened.\n\n- [ ] Persist a terminal outcome for a run that produced no results — a failed/timed-out `agent_runs` row, or a small run-outcome record — so the card can say what happened.\n- [ ] At minimum, make the empty state distinguish \"never ran\" from \"no results to show\".\n\n#500 gave the timeout an outcome and copy. This is about that outcome surviving the tab it was shown on.\n",
+   "labels": "[]",
+   "comments": 1,
+   "url": "https://github.com/Open-Finance-Lab/AgenticTrading/issues/524"
+  },
+  "repo": {
+   "stars": 767,
+   "language": "Python",
+   "description": ""
+  },
+  "labels": {
+   "category": "quant_trading",
+   "kind": "bug",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOO8xZwM8AAAABPMmW1Q",
+  "issue": {
+   "repo": "ROCm/FastFlowLM",
+   "number": 697,
+   "title": "[Issue]: Todos status argument missing in Tool calling",
+   "body": "### Problem Description\n\nModel: Qwen3.5-9b\nTool: DeepSeek Harness 0.12 alpha3\nFastFlowLM v1.0.3\n\n\nI'm new to agent coding, not sure if it's my settings or something with FLM\n\nIt's complaining about:\nError: invalid arguments: \"todos[1].status\" must be one of [\"pending\",\"in_progress\",\"completed\"]; \"todos[2].status\" must be one of [\"pending\",\"in_progress\",\"completed\"]; missing required property \"todos[3].status\"\n\n<img width=\"1682\" height=\"602\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/c5b4104c-716c-459a-ace3-c8af3894cb96\" />\n\n\n### Operating System\n\nWindows 11\n\n### CPU\n\nAMD Ryzen AI MAX+ 395\n\n### GPU\n\n8060s\n\n### ROCm Version\n\nv1.0.0\n\n### ROCm Component\n\n_No response_\n\n### Steps to Reproduce\n\n_No response_\n\n### (Optional for Linux users) Output of /opt/rocm/bin/rocminfo --support\n\n<details>\n<summary>rocminfo --support output</summary>\n\n```\nPaste output here\n```\n\n</details>\n\n\n### Additional Information\n\n_No response_",
+   "labels": "[]",
+   "comments": 2,
+   "url": "https://github.com/ROCm/FastFlowLM/issues/697"
+  },
+  "repo": {
+   "stars": 1916,
+   "language": "C++",
+   "description": "Run LLMs on AMD Ryzen™ AI NPUs in minutes; purpose-built and deeply optimized for the AMD NPUs."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "bug",
+   "difficulty": "medium",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOQj2kIM8AAAABRS7ziw",
+  "issue": {
+   "repo": "waybarrios/vllm-mlx",
+   "number": 792,
+   "title": "[New Model]: Qwen3.8-flash-next/qwen4_exp support",
+   "body": "### Hugging Face URL\n\nhttps://huggingface.co/Vontra/Qwen3.8-Flash-Next-MLX-oQ4-MTP\n\n### Modality\n\nText-only\n\n### Does it already run in mlx-lm, mlx-vlm, mlx-audio, or mlx-embeddings?\n\nYes, https://huggingface.co/Vontra/Qwen3.8-Flash-Next-MLX-oQ4-MTP shows it is supported by mlx-vlm.\n\n### Closest model already supported by vllm-mlx\n\n_No response_\n\n### Architecture notes\n\nI know its called qwen4_exp. I don't know the details\n\n### Tool calling, reasoning, or multimodal specifics\n\nIt does do tool calling, but I don't know the details.\n\n### Additional context\n\norginal model card can be found here:https://huggingface.co/Qwen/Qwen3.8-Flash-Next",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/waybarrios/vllm-mlx/issues/792"
+  },
+  "repo": {
+   "stars": 1607,
+   "language": "Python",
+   "description": "High-performance OpenAI and Anthropic compatible LLM inference server for Apple Silicon. Native MLX, continuous batching, multimodal models, MCP tool calling, and Claude Code support."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOOtoBIM8AAAABScE6qA",
+  "issue": {
+   "repo": "Open-Finance-Lab/AgenticTrading",
+   "number": 502,
+   "title": "Record prod DDL and start-phase numbers after #501 deploys",
+   "body": "Follow-up to #501 (Track A of the backtest speed-and-trust design). The plan's\nFinal verification tables have their **local** columns filled and their **prod**\ncolumns deliberately blank, because prod is the only place Neon DDL and\nconnection setup exist at all — locally every store resolves to its SQLite twin,\nwhich nothing in that PR guards, so a local before/after of `ATL_BACKTEST_WORKER`\nmeasures exactly zero.\n\nTwo readings, both from the deploy that ships #501.\n\n**1. Pre-change baseline — the parent's own boot.** Open the Render deploy log for\n`srv-d7lbmpjbc2fs73bcr6t0` and `grep 'backend: schema init'`. The parent is never a\nworker, so it runs every store's DDL against the same Neon databases the child used\nto: eleven timed lines, six of which name the twins a child constructs. Those six are\nthe round trips the child no longer pays. Note which line is preceded by\n`🏊 pg pool created for …` — that store's figure carries the cold handshake for its\nURL and the later stores on the same URL do not.\n\n**2. After — the child.** Launch one onboarding backtest and grep the same log for the\nchild's `schema init skipped (backtest worker)` lines and its `⏱  phase` /\n`spawn+interpreter …` lines. Expect **six** skip lines (the six twins its import graph\nbuilds, not eleven) and `schema DDL 0.00s` in the `starting` split.\n\n⚠ Do **not** race a live poll for the phases: `/backtest/status` exposes `phases[]`\nonly while the run is in flight, and the parent unlinks the progress file the moment\nit ends (`backtests.py:1993`). The child prints every transition to stdout and the\nparent dumps that into the service log under `=== BACKTEST SCRIPT OUTPUT ===`\n(`backtests.py:1773`), head+tail bounded at 32k each — these lines are at the head, so\ntruncation cannot eat them.\n\n**How to read the result:** the child's zero is a *check*, not a saving — it says the\nflag fired. The saving is the parent-boot column. Five skips plus a sixth *timed* line\nmeans the flag failed to reach one twin, which is exactly the case the timed direction\nexists to make visible.\n\n**Local numbers already recorded, for comparison:** the import probe counts **107\nstatements over 6 `_init_schema` calls** before vs **0/0** after; and the dark window\nis ~21s of which ~86% is `loading_bars`, not schema — so do not expect this to be\nlarge in wall-clock terms. The point is to confirm the flag fires in production and to\nput a real number on what the parent pays.\n\nFill both tables in `docs/superpowers/plans/2026-09-20-backtest-visible-start.md` and\ncommit **on a fresh branch** — never on `feat/backtest-visible-start` after #501 merges\n(commits behind a merged PR orphan silently).\n",
+   "labels": "[]",
+   "comments": 1,
+   "url": "https://github.com/Open-Finance-Lab/AgenticTrading/issues/502"
+  },
+  "repo": {
+   "stars": 767,
+   "language": "Python",
+   "description": ""
+  },
+  "labels": {
+   "category": "quant_trading",
+   "kind": "chore",
+   "difficulty": "medium",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDORGgqa88AAAABR3b80w",
+  "issue": {
+   "repo": "Scottcjn/rustchain-bounties",
+   "number": 16984,
+   "title": "Claim: May Flowers Star Pack — Blackcode-cmd",
+   "body": "Claiming #9017.\n\nGitHub: @Blackcode-cmd\n\nStarred:\n- Scottcjn/Rustchain\n- Scottcjn/bottube\n- Scottcjn/rustchain-bounties\n\nFlower proof:\nhttps://github.com/Scottcjn/rustchain-bounties/pull/16982#issuecomment-5722881083\n\nRTC wallet:\nRTCaefa6fef8bd9b1447320d96f997eb972ccac4863",
+   "labels": "[\"bounty\"]",
+   "comments": 5,
+   "url": "https://github.com/Scottcjn/rustchain-bounties/issues/16984"
+  },
+  "repo": {
+   "stars": 286,
+   "language": "Python",
+   "description": "Earn RTC crypto by contributing to the RustChain ecosystem. Bounties from 1-150 RTC. Star, code, write tutorials, find bugs."
+  },
+  "labels": {
+   "category": "other",
+   "kind": "chore",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOA-j9z87CLEKK",
+  "issue": {
+   "repo": "pytorch/pytorch",
+   "number": 158968,
+   "title": "foreach_map enhancements",
+   "body": "### 🚀 The feature, motivation and pitch\n\nThese enhancements are to have a better UX when using foreach_map, suggested in a few places, but most recently, https://github.com/pytorch/pytorch/issues/158371#issuecomment-3088757068\n\nThese enhancements should allow easier compiler-first custom optimizer implementations. \n### Alternatives\n\n_No response_\n\n### Additional context\n\n_No response_\n\ncc @chauhang @penguinwu @voznesenskym @EikanWang @jgong5 @Guobing-Chen @XiaobingSuper @zhuhaozhe @blzheng @wenzhe-nrv @jiayisunx @ipiszy @chenyang78 @kadeng @muchulee8 @amjames @aakhundov @coconutruben @Lucaskabela",
+   "labels": "[\"feature\", \"good first issue\", \"triaged\", \"oncall: pt2\", \"module: inductor\", \"module: dynamo\", \"internal ramp-up task\"]",
+   "comments": 18,
+   "url": "https://github.com/pytorch/pytorch/issues/158968"
+  },
+  "repo": {
+   "stars": 103585,
+   "language": "Python",
+   "description": "Tensors and Dynamic neural networks in Python with strong GPU acceleration"
+  },
+  "labels": {
+   "category": "data_scraping",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOKH31kM8AAAABOoe1Nw",
+  "issue": {
+   "repo": "topoteretes/cognee",
+   "number": 4720,
+   "title": "Hackathon [Feature]: Add GitBook data-source connector",
+   "body": "### Problem Statement\n\ncognee has **five** data-source connectors today (`confluence`, `gmail`, `google-drive`, `notion`, `slack`) against roughly 120 planned. Data sources are the thinnest surface in the project.\n\n**GitBook** is on the roadmap and has no connector.\n\n### Proposed Solution\n\nAdd a `gitbook` connector under `packages/connector/gitbook/` in [cognee-community](https://github.com/topoteretes/cognee-community), following the shape of the five existing connectors.\n\n- **Auth:** API token\n- **Ingest:** spaces, pages, and page content\n- **Incremental sync:** space `updatedAt`\n- **Forget-on-delete:** deleting upstream must remove the record from the graph on the next sync\n\n### Watch out for\n\nContent is returned as a structured document tree, not markdown. Write a flattener first.\n\n### Package layout to follow\n\n```\npackages/connector/gitbook/\n├── README.md\n├── cognee_community_connector_gitbook/\n│   ├── __init__.py\n│   └── gitbook.py\n├── examples/\n├── tests/\n└── pyproject.toml\n```\n\nRead `packages/connector/notion/` first — it is the closest working reference.\n\n### Acceptance Criteria\n\n- [ ] A user connects via API token and selects what to ingest\n- [ ] Selected content is ingested and searchable in cognee\n- [ ] Incremental sync picks up only what changed since the last run\n- [ ] Deleting the source upstream removes it from the graph on the next sync\n- [ ] README with setup steps and a runnable example under `examples/`\n- [ ] Tests covering the ingest path and the incremental cursor\n\n### Context\n\nPart of the cognee hackathon connector push. Difficulty: **Beginner friendly** (E) — auth is an API key or token; no OAuth dance, no account gatekeeping",
+   "labels": "[\"enhancement\", \"good first issue\", \"INTEGRATIONS\", \"hackathon\"]",
+   "comments": 2,
+   "url": "https://github.com/topoteretes/cognee/issues/4720"
+  },
+  "repo": {
+   "stars": 31254,
+   "language": "Python",
+   "description": "Cognee is the open-source AI memory platform for agents. Give your AI agents persistent long-term memory with small models for free"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDODhKIWM8AAAABPwkFrg",
+  "issue": {
+   "repo": "backstage/backstage",
+   "number": 35444,
+   "title": "Snyk vulnerability [SNYK-JS-REACTDEVUTILS-17890708]",
+   "body": "\n## Affecting Packages/Plugins\n\n* [example-app](packages/app/package.json)\n* [example-app-legacy](packages/app-legacy/package.json)\n* [@backstage/cli](packages/cli/package.json)\n* [@backstage/cli-defaults](packages/cli-defaults/package.json)\n* [@backstage/cli-module-build](packages/cli-module-build/package.json)\n* [@backstage/cli-module-config](packages/cli-module-config/package.json)\n* [@backstage/cli-module-github](packages/cli-module-github/package.json)\n* [@techdocs/cli](packages/techdocs-cli/package.json)\n* [techdocs-cli-embedded-app](packages/techdocs-cli-embedded-app/package.json)\n\n## Overview\n[react-dev-utils](https://www.npmjs.com/package/react-dev-utils) is an includes some utilities used by Create React App.\n\nAffected versions of this package are vulnerable to Command Injection via the `startBrowserProcess` function in `react-dev-utils/openBrowser.js`. An attacker can execute arbitrary operating system commands by supplying crafted input that is incorporated into command execution without proper neutralization.\n## Remediation\nThere is no fixed version for `react-dev-utils`.\n## References\n- [GitHub Issue](https://github.com/react/create-react-app/issues/17269)\n- [Vulnerable Code](https://github.com/react/create-react-app/blob/main/packages/react-dev-utils/openBrowser.js#L67)\n- [Vulnerable Code](https://github.com/react/create-react-app/blob/main/packages/react-dev-utils/openBrowser.js#L93-L102)\n\n",
+   "labels": "[\"snyk-vulnerability\", \"help wanted\"]",
+   "comments": 0,
+   "url": "https://github.com/backstage/backstage/issues/35444"
+  },
+  "repo": {
+   "stars": 34535,
+   "language": "TypeScript",
+   "description": "Backstage is an open framework for building developer portals"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "chore",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOAjngg87u0ASI",
+  "issue": {
+   "repo": "ungoogled-software/ungoogled-chromium",
+   "number": 3675,
+   "title": "Support Unified Push",
+   "body": "### Description\n\nSupport Unified Push\n\n### Who's implementing?\n\n- [ ] I'm willing to implement this feature myself\n\n### The problem\n\nungoogled-chromium does not have a  web push system\n\n### Possible solutions\n\nhttps://unifiedpush.org/users/distributors/kunifiedpush/\n\n### Alternatives\n\n_No response_\n\n### Additional context\n\n_No response_",
+   "labels": "[\"enhancement\", \"help wanted\"]",
+   "comments": 20,
+   "url": "https://github.com/ungoogled-software/ungoogled-chromium/issues/3675"
+  },
+  "repo": {
+   "stars": 27843,
+   "language": "Python",
+   "description": "Google Chromium, sans integration with Google"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOBKnnxc7RsZxT",
+  "issue": {
+   "repo": "super-productivity/super-productivity",
+   "number": 5287,
+   "title": "💥 TypeError: Cannot read properties of null (reading 'tagIds')",
+   "body": "### Steps to Reproduce\n<!-- !!! Please provide an unambiguous set of steps to reproduce this bug! !!! -->\n1. Task with subtasks. Subtasks appear repeated under task. \n2. Duplicate main task.\n3. Delete original task, error message appears\n\n### Additional Console Output\n<!-- Is there any output if you press Ctrl+Shift+i (Cmd+Alt+i for mac) in the console tab? If so please post it here. -->\n\ntagIds (file:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/src/app/features/work-context/work-context.service.ts:276:17)filter (file:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/src/app/features/work-context/work-context.service.ts:274:9)_next (file:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/node_modules/rxjs/_esm2015/internal/operators/map.js:29:28)next (file:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/node_modules/rxjs/_esm2015/internal/Subscriber.js:50:11)observers.slice (file:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/node_modules/rxjs/_esm2015/internal/Subject.js:42:18)_events.push (file:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/node_modules/rxjs/_esm2015/internal/ReplaySubject.js:30:10)next (file:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/node_modules/rxjs/_esm2015/internal/operators/shareReplay.js:36:18)__tryOrUnsub (file:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/node_modules/rxjs/_esm2015/internal/Subscriber.js:186:9)next (file:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/node_modules/rxjs/_esm2015/internal/Subscriber.js:126:13)\nMETA: SP14.2.1 __ Electron – pt-BR – Win32 – pt-BR – UA:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) superProductivity/14.2.1 Chrome/136.0.7103.149 Electron/36.4.0 Safari/537.36\n\n\n\n\n### Url\nfile:///C:/Users/joaoc/AppData/Local/Programs/superProductivity/resources/app.asar/.tmp/angular-dist/browser/index.html#/project/-c0vXPn92bDUOiawgQsru/tasks\n\n\n\n### Meta Info\nMETA: SP14.2.1 __ Electron – pt-BR – Win32 – pt-BR – UA:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) superProductivity/14.2.1 Chrome/136.0.7103.149 Electron/36.4.0 Safari/537.36\n\n\n### Actions Before Error\n```\n1760534760382: [SP_ALL] Load(import) all data \n1760534760385: [SP_ALL] All Data was loaded \n1760534761390: [Task Shared] batchUpdateForProject \n1760534764807: [WorkContext] Set Active Work Context \n1760534764859: [Task] SetSelectedTask \n1760534786054: [Task Shared] addTask \n1760534786123: [Task] Add SubTask (8) \n1760534801663: [Task Shared] deleteTask \n1760534801667: [Task] UnsetCurrentTask\n```",
+   "labels": "[\"help wanted\"]",
+   "comments": 2,
+   "url": "https://github.com/super-productivity/super-productivity/issues/5287"
+  },
+  "repo": {
+   "stars": 22425,
+   "language": "TypeScript",
+   "description": "Super Productivity is an advanced todo list app with integrated Timeboxing and time tracking capabilities. It also comes with integrations for Jira, GitLab, GitHub and Open Project."
+  },
+  "labels": {
+   "category": "web_frontend",
+   "kind": "bug",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOMdP6aM8AAAABTx65tw",
+  "issue": {
+   "repo": "MODSetter/SurfSense",
+   "number": 2006,
+   "title": "Account export has no size warning and no timeout",
+   "body": "## The gap\r\n\r\n[`docs/architecture/sunset.md`](https://github.com/MODSetter/SurfSense/blob/dev/docs/architecture/sunset.md) lists this under **Known gaps**:\r\n\r\n> The synchronous export has no size warning and no timeout.\r\n\r\n## Why it matters\r\n\r\nExport is the only thing a hosted user has left, and the window closes on 18 Oct 2026, after which the data is gone. `build_account_export_zip()` walks every workspace the user belongs to and writes the whole account into a temporary ZIP before a single byte is streamed, all inside the request. On a large account that is a long silence: the browser or the proxy in front of it times out, the user reads it as a hang, and their retry starts the same build again from nothing.\r\n\r\nThe sunset runbook already lists this as one of the four things to watch in the first hour — \"Large accounts export synchronously; a timeout looks like a hang\" — which means it is a known operational risk with nothing in the code to soften it.\r\n\r\n## Where\r\n\r\n- [`surfsense_backend/app/services/export_service.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_backend/app/services/export_service.py) — `build_account_export_zip()` builds the entire archive before returning its `ExportResult`. `_write_zip_entries()` already hops to a thread, so the existing structure is not the obstacle.\r\n- [`surfsense_backend/app/routes/export_routes.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_backend/app/routes/export_routes.py) — `export_account()` streams the finished file and sets `Content-Length` from `result.zip_size`, so the size is known before the first byte goes out. `X-Skipped-Documents` is the existing precedent for telling the client something about the export out of band.\r\n- [`surfsense_web/app/%28home%29/sunset/sunset-export.tsx`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_web/app/%28home%29/sunset/sunset-export.tsx) — `handleExport()` has one busy state and no copy about how long a big account takes.\r\n\r\n## What done looks like\r\n\r\n- Someone with a large account is told it will take a while, rather than being left with a spinner and a guess.\r\n- An export that cannot finish ends in something the user can act on, rather than a dropped connection.\r\n- Two decisions, both yours to make and to justify in the PR: what counts as large — there is no measured number anywhere in this repo, so measure one and say how — and whether the answer is a warning, a timeout, a cap, or building the archive as it streams.\r\n- Prefer the smallest thing that removes the silence. A background job with its own status endpoint is a plausible design and almost certainly the wrong one here, given this code has weeks left to live.\r\n- The doc's \"Export\" section describes the request as building the whole bundle inline. If that changes, update the prose, and delete the Known gaps line in the same PR.\r\n\r\n## What not to change\r\n\r\n`GET /api/v1/export` must stay a `GET`. `SunsetWriteBlockMiddleware` refuses on the method, so an export moved to `POST` would answer `410 Gone` the moment the flag is thrown — the exact failure stage 1 of the sunset runbook tells the operator to abort on. [`tests/unit/test_sunset_write_block.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_backend/tests/unit/test_sunset_write_block.py) asserts this, and the assertion is not incidental.\r\n\r\n## How to verify\r\n\r\n[`surfsense_backend/tests/unit/services/test_account_export.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_backend/tests/unit/services/test_account_export.py) and [`tests/integration/test_account_export.py`](https://github.com/MODSetter/SurfSense/blob/dev/surfsense_backend/tests/integration/test_account_export.py) already cover this path. Add the failing test first, against whichever behaviour you chose, and run `pnpm test:unit` in `surfsense_web` too if you touch the export button.\r\n\r\n```bash\r\ncd surfsense_backend\r\nuv run pytest -m unit\r\nuv run pytest -m integration\r\nuv run ruff check .\r\n```\r\n\r\n## Before you start\r\n\r\nRead [CONTRIBUTING.md](https://github.com/MODSetter/SurfSense/blob/dev/CONTRIBUTING.md) and the [sunset doc](https://github.com/MODSetter/SurfSense/blob/dev/docs/architecture/sunset.md). This is time-critical: the export window shuts on 18 Oct 2026 and the data is purged the same day. The bundle's format is frozen as [contract 3](https://github.com/MODSetter/SurfSense/blob/dev/docs/contracts/03-export-bundle.md), and a change to `docs/contracts/` needs the owners of both sides — but a warning, a timeout or a streamed build changes none of the bytes in the ZIP, so this should not become a contract change. If your design would alter the bundle, stop and say so in the issue first. Open your PR against `dev`, not `main`. Comment here to claim this.\r\n",
+   "labels": "[\"enhancement\", \"help wanted\", \"performance\", \"backend\", \"hosted\"]",
+   "comments": 0,
+   "url": "https://github.com/MODSetter/SurfSense/issues/2006"
+  },
+  "repo": {
+   "stars": 16311,
+   "language": "Python",
+   "description": "Air gapped, privacy focused open source NotebookLM alternative. Join our Discord: https://discord.gg/ejRNvftDp9"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "medium",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDODhKIWM8AAAABPwkTvA",
+  "issue": {
+   "repo": "backstage/backstage",
+   "number": 35486,
+   "title": "Snyk vulnerability [SNYK-JS-BACKSTAGEPLUGINAPPBACKEND-8163063]",
+   "body": "\n## Affecting Packages/Plugins\n\n* [example-backend](packages/backend/package.json)\n\n## Overview\n[@backstage/plugin-app-backend](https://www.npmjs.org/package/@backstage/plugin-app-backend) is an A Backstage backend plugin that serves the Backstage frontend app\n\nAffected versions of this package are vulnerable to Expected Behavior Violation due to the handling of `APP_CONFIG_*` environment variables, which ignores the visibility defined in the configuration schema.\r\n**Note:** This was an intended feature of the `APP_CONFIG_*` way of supplying configuration, but it goes against the expected behavior of the configuration system.\r\n\r\n## Workaround \r\nThis vulnerability can be mitigated by avoiding using the `APP_CONFIG_` configuration pattern for secrets.\n## Remediation\nUpgrade `@backstage/plugin-app-backend` to version 0.3.75 or higher.\n## References\n- [GitHub Commit](https://github.com/backstage/backstage/commit/323e6129073c5cb4cc106a1239eaec31a129554f)\n- [Red Hat Bugzilla Bug](https://bugzilla.redhat.com/show_bug.cgi?id=2316342)\n\n",
+   "labels": "[\"snyk-vulnerability\", \"help wanted\"]",
+   "comments": 0,
+   "url": "https://github.com/backstage/backstage/issues/35486"
+  },
+  "repo": {
+   "stars": 34535,
+   "language": "TypeScript",
+   "description": "Backstage is an open framework for building developer portals"
+  },
+  "labels": {
+   "category": "dev_tools_cli",
+   "kind": "chore",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOCPmwqs8AAAABUMc1EA",
+  "issue": {
+   "repo": "ONEARMY/community-platform",
+   "number": 4939,
+   "title": "[UI Migration] Username",
+   "body": "## Context\nWe're migrating components from `oa-components` (theme-ui) into `src/components/ui/` (shadcn generated on Base UI, styled with Tailwind v4), following the strangler-fig approach described in the [[Platform UI README](https://github.com/ONEARMY/community-platform/blob/master/src/components/ui/README.md)](https://github.com/ONEARMY/community-platform/blob/master/src/components/ui/README.md). This is not a big-bang rewrite — this ticket migrates **one component only**. `oa-components` is not being deleted as a whole; only the piece migrated in this ticket is removed.\n\nThe goal is near-identical UI and behaviour. If the new implementation can't (or shouldn't) match the old one exactly, we've tried to note it here. If you need to make a call to make a minor change, please note why in your PR.\n\nReference: [[Username in the legacy Storybook](https://storybook.onearmy.earth/?path=/story/components-username--no-badge)](https://storybook.onearmy.earth/?path=/story/components-username--no-badge)\n\n## Scope\n- **Old component:** `packages/components/src/Username/Username.tsx`\n- **New component:** `src/components/ui/username.tsx` — a small custom composite, not a single shadcn primitive\n- **Base UI / shadcn primitive(s) used:** `Avatar` and `Badge` (confirm both are already added from earlier tickets — `CommentAvatar` used `Avatar`, `ModerationStatus` extended `Badge` — before running `shadcn add` again)\n\n## Screenshots / video\nAttach to the PR, not just this ticket description, so reviewers see them in context:\n- [ ] Old component — default state\n- [ ] New component — default state\n- [ ] Old vs new — any other relevant states (hover, focus, disabled, error, open/expanded, loading, dark mode if applicable, each tenant theme if colors are involved)\n- [ ] If the interaction itself changed (animation, transition, keyboard behavior), a short screen recording of old vs new\n\n## Acceptance criteria\n- [ ] Implementation follows the conventions in the [[Platform UI README](https://github.com/ONEARMY/community-platform/blob/master/src/components/ui/README.md)](https://github.com/ONEARMY/community-platform/blob/master/src/components/ui/README.md) (component location, Base UI primitives, Tailwind theming, icon pattern)\n- [ ] Story added to the **new** Platform UI Storybook (`bun run storybook:ui`, port 6008), not the legacy one\n- [ ] Old component removed from `packages/components/` (source file, its story, any icon/asset used only by it)\n- [ ] All call sites updated to import from `src/components/ui/` instead of `oa-components`\n- [ ] Screenshots/video attached per above",
+   "labels": "[\"Good first issue\", \"Help wanted\", \"Difficulty: Easy\", \"UI Migration\"]",
+   "comments": 1,
+   "url": "https://github.com/ONEARMY/community-platform/issues/4939"
+  },
+  "repo": {
+   "stars": 1402,
+   "language": "TypeScript",
+   "description": "A platform to build useful communities that aim to tackle global problems"
+  },
+  "labels": {
+   "category": "web_frontend",
+   "kind": "chore",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDONhYXWs8AAAABRc2aaw",
+  "issue": {
+   "repo": "apappascs/mcp-servers-hub",
+   "number": 38,
+   "title": "Add ContHunt remote MCP server",
+   "body": "## Server\n**ContHunt** — Discover and research viral social content on TikTok, Instagram Reels, and YouTube Shorts.\n\n- **Website:** https://conthunt.app\n- **Remote MCP (Streamable HTTP):** https://mcp.conthunt.app\n- **GitHub:** https://github.com/Synthenova/conthunt\n- **Official registry:** `io.github.Nirmal2000/conthunt` (title ContHunt)\n- **Logo:** https://mcp.conthunt.app/icons/dark.png\n\nPlease add ContHunt to this directory/list. Contact: nirmalvelu2000@gmail.com",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/apappascs/mcp-servers-hub/issues/38"
+  },
+  "repo": {
+   "stars": 332,
+   "language": null,
+   "description": "Discover the most comprehensive and up-to-date collection of MCP servers in the market. This repository serves as a centralized hub, offering an extensive catalog of open-source and proprietary MCP servers, complete with features, documentation links, and contributors."
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDORQl_W88AAAABQAfW5w",
+  "issue": {
+   "repo": "OpenBMB/MiniCPM-o-Demo",
+   "number": 62,
+   "title": "Structured tool calling for Audio Full-Duplex Realtime API — qwen-audio-agent integration",
+   "body": "Thank you for open-sourcing MiniCPM-o 4.5 and its Realtime inference service!\n\nWe have integrated MiniCPM-o 4.5 into [qwen-audio-agent](https://github.com/QwenAudio/qwen-audio-agent) as a realtime voice frontend, so users can talk naturally while the framework coordinates backend agents.\n\nThe integration is available in [qwen-audio-agent PR #344](https://github.com/QwenAudio/qwen-audio-agent/pull/344).\n\nFrom the currently documented Audio Full-Duplex protocol, we found session lifecycle and text/audio streaming events, but no structured events for tool-call requests or tool-result submission.\n\nCould you please clarify:\n\n1. Does the current full-duplex Realtime API expose any tool/function-calling interface that is not yet documented?\n2. If not, is structured tool calling planned at the protocol level in a future release, for example function-call arguments plus tool-result submission?\n\nWe saw the model capability discussion in #21. This issue focuses specifically on the Realtime wire protocol needed by host applications.\n\nThis capability would be especially valuable for realtime voice agent runtimes: MiniCPM-o could decide when to call a tool, while the host executes it and returns the result without interrupting the voice interaction.\n\nWe would be happy to test and provide integration feedback when the capability becomes available.\n\nThanks again for the excellent open-source work!\n",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/OpenBMB/MiniCPM-o-Demo/issues/62"
+  },
+  "repo": {
+   "stars": 394,
+   "language": "Python",
+   "description": "Official PyTorch+CUDA Full-functional Web Demo for MiniCPM-o 4.5"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOQQLOzc8AAAABRcc9rw",
+  "issue": {
+   "repo": "YuzeHao2023/Awesome-MCP-Servers",
+   "number": 503,
+   "title": "Add ContHunt remote MCP server",
+   "body": "## ContHunt\n\nRemote MCP server for discovering and researching viral social content on TikTok, Instagram Reels, and YouTube Shorts.\n\n- **Name:** ContHunt\n- **Website:** https://conthunt.app\n- **MCP endpoint (Streamable HTTP, OAuth):** https://mcp.conthunt.app/\n- **GitHub:** https://github.com/Synthenova/conthunt\n- **Official registry name:** `io.github.synthenova/conthunt`\n- **Icons:** https://mcp.conthunt.app/icons/dark.png\n- **Contact:** nirmalvelu2000@gmail.com\n\nPlease list ContHunt in this directory. Happy to follow any required format.",
+   "labels": "[]",
+   "comments": 1,
+   "url": "https://github.com/YuzeHao2023/Awesome-MCP-Servers/issues/503"
+  },
+  "repo": {
+   "stars": 1065,
+   "language": null,
+   "description": "A curated list of Model Context Protocol (MCP) servers "
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "docs",
+   "difficulty": "small",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOPMjlEs8AAAABUNMbrA",
+  "issue": {
+   "repo": "OctagonAI/kalshi-trading-bot-cli",
+   "number": 52,
+   "title": "Report generation can overrun its timeout: polling GETs aren't bounded by the overall deadline",
+   "body": "`generateReportAndWait` in `src/scan/octagon-reports-api.ts` takes a `timeoutMs` (default 600s), but that limit only applies to the polling sleeps. Each GET made while waiting gets its own 60s request deadline (`REQUEST_TIMEOUT_MS`) and up to 3 retries with 5/15/30s backoff (`GET_RETRY_DELAYS`), and none of that is capped by the remaining time.\n\n**Effect:** a status GET that starts just before the deadline and keeps timing out can hold `--refresh` for about 290s past `timeoutMs` (4 × 60s requests + 50s of backoff). The same applies to:\n- the final GET of the pinned version after the run completes\n- the `?version=latest` polling in `recoverFromLatest` (after an ambiguous POST failure)\n\n**Suggested fix:** compute one absolute deadline per generation wait and pass it through `fetchReportRunStatus` / `fetchReportVersions` into `requestJson`. Cap each request timeout and retry delay to the remaining time, and stop polling or recovering once it expires. Calls with no deadline keep today's behavior.\n\nRaised in review of https://github.com/OctagonAI/polymarket-trading-bot-cli/pull/12#discussion_r4147792277. The Polymarket module is a port of Kalshi's, so both CLIs have it. This is minor (the overrun only happens when the API is already failing), so it's tracked here rather than fixed in that PR.\n",
+   "labels": "[]",
+   "comments": 0,
+   "url": "https://github.com/OctagonAI/kalshi-trading-bot-cli/issues/52"
+  },
+  "repo": {
+   "stars": 396,
+   "language": "TypeScript",
+   "description": "AI-native CLI for trading Kalshi prediction markets. Runs deep fundamental research, generates independent probability estimates, computes edge vs. live order books, and executes trades with Kelly sizing and a 5-gate risk engine. "
+  },
+  "labels": {
+   "category": "prediction_markets_finance",
+   "kind": "bug",
+   "difficulty": "small",
+   "worth_a_look": "yes"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ },
+ {
+  "id": "I_kwDOMQS1Ps8AAAABGkjbuQ",
+  "issue": {
+   "repo": "webmachinelearning/prompt-api",
+   "number": 209,
+   "title": "Extend the Message format to support tool calling, extended thinking, and multimodality",
+   "body": "This issue aims to bring together several related discussions (including #138, #149, and #50) into one cohesive proposal around restructuring the `Message` type to better reflect the realities of modern on-device LLMs.\n\n## Motivation\n \nEven sub-10B models increasingly support multimodal inputs, tool calling, and extended thinking. The current `Message` shape (a role and a string content) doesn't have room for any of these, which makes it hard to build real agent-style applications on top of the Prompt API. Rather than solving each capability in isolation, it seems worth discussing a more unified message structure that could accommodate all of them cleanly.\n\n## Proposed message structure\n \nThe key idea is to make `content` a union of typed content parts (text, image, audio), and to introduce distinct message interfaces per role, since the properties that make sense differ significantly between `user`, `assistant`, `system`, and `tool` messages:\n\n```typescript\nexport type MessageContent = string | MessageContentPart[];\n\nexport type MessageContentPart = TextContentPart | ImageContentPart | AudioContentPart;\n\nexport interface TextContentPart {\n    type: 'text';\n    text: string;\n}\n\nexport interface ImageContentPart {\n    type: 'image';\n    data: string | Blob | ArrayBuffer | Uint8Array;\n    mimeType?: 'image/png' | 'image/jpeg' | 'image/webp' | string;\n}\n\nexport interface AudioContentPart {\n    type: 'audio';\n    data: string | Blob | ArrayBuffer | Uint8Array;\n    mimeType?: 'audio/wav' | 'audio/mpeg' | 'audio/ogg' | string;\n}\n\nexport interface SystemMessage {\n    role: 'system';\n    content: MessageContent;\n}\n\nexport interface UserMessage {\n    role: 'user';\n    content: MessageContent;\n}\n\nexport interface AssistantMessage {\n    role: 'assistant';\n    content?: MessageContent;\n    thinking?: string;\n    toolCalls?: Array<{\n        id: string;\n        type?: 'function';\n        function: {\n            name: string;\n            arguments: Record<string, unknown>;\n        };\n    }>;\n}\n\nexport interface ToolMessage {\n    role: 'tool';\n    toolCallId: string;\n    name?: string;\n    content: MessageContent;\n}\n\nexport type Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage;\n```\n\nNote that `MessageContent` is shared across user/system messages and tool call responses keeping the content shape consistent regardless of role.\n \nBecause messages are fully serializable, they can also be stored and reused across sessions via `initialPrompts`, which would address #50.\n \n## Proposed response structure\n \nOn the output side, a flat text response also doesn't map well to agentic interactions. A single user prompt can trigger multiple model turns: one or more to emit tool calls, others to synthesize the result. A more flexible `ModelResponse` could model this as a list of `RunResult`s:\n\n```typescript\nexport interface Usage {\n    promptTokens: number;\n    completionTokens: number;\n    totalTokens: number;\n}\n\nexport interface RunResult {\n    thinkingText: string;\n    text: string;\n    tools: ToolCallResult[];\n    usage: Usage;\n}\n\nexport interface RequestResult {\n    done: boolean;\n    runs: RunResult[];\n    usage: Usage;\n}\n\nexport type StreamChunk = RequestResult;\n```\n\nA response to \"What's the weather in London?\" with tool calling and thinking enabled might look like:\n\n```javascript\n{\n  done: true,\n  runs: [\n    {\n      thinkingText:\n        '1.  **Analyze the user\\'s request:** The user is asking ...,\n      text: \"\",\n      tools: [\n        {\n          id: \"toolcall_3\",\n          name: \"get_weather\",\n          args: {\n            location: \"London\",\n          },\n          output: {\n            content: [\n              {\n                type: \"text\",\n                text: \"The weather in London in Sunny, 20 degrees celsius.\",\n              },\n            ],\n          },\n          durationMs: 0.13499999791383743,\n        },\n      ],\n      usage: {\n        promptTokens: 123,\n        completionTokens: 156,\n        totalTokens: 279,\n      },\n    },\n    {\n      thinkingText:\n        'The user is asking for the current weather in ...',\n      text: \"The current weather in London is sunny with a temperature of 20 degrees.\",\n      tools: [],\n      usage: {\n        promptTokens: 167,\n        completionTokens: 152,\n        totalTokens: 319,\n      },\n    },\n  ],\n  usage: {\n    promptTokens: 290,\n    completionTokens: 308,\n    totalTokens: 598,\n  },\n};\n```\n\nTwo runs: the first produces the tool call, the second synthesizes the final answer.\n\n## Reference implementation\n\nI've been exploring a very similar shape while building an [AgentSDK for Transformers.js](https://github.com/huggingface/transformers.js/tree/feat/agent-sdk-prompt-api), which tries to align closely with the Prompt API. A minimal working example with Gemma 4 running in-browser via WebGPU looks like this:\n\n```typescript\nconst model = await Model.load(\n  { modelId: 'onnx-community/gemma-4-E2B-it-ONNX', device: 'webgpu', dtype: 'q4f16' },\n  (info) => (info.status === 'progress_total') && console.log(info),\n);\n\nconst agent = new Agent({\n  model,\n  initialPrompts: [{ role: 'system', content: 'You are a helpful research assistant.' }],\n});\n\nconst result = await agent.run('Who are you?');\n```\n\nThis isn't meant as a concrete implementation proposal, more as a working reference point that the two APIs are converging on similar problems, and that aligning on message shape early would benefit both.\n\n---\n\nLooking forward to hearing thoughts, especially on whether the per-role interface split feels right, and whether the multi-run response model is a direction worth pursuing.",
+   "labels": "[]",
+   "comments": 17,
+   "url": "https://github.com/webmachinelearning/prompt-api/issues/209"
+  },
+  "repo": {
+   "stars": 787,
+   "language": "Bikeshed",
+   "description": "💬 A proposal for a web API for prompting browser-provided language models"
+  },
+  "labels": {
+   "category": "ai_agents_llm",
+   "kind": "feature",
+   "difficulty": "large",
+   "worth_a_look": "no"
+  },
+  "labeled_by": "claude-fable-5.1 provisional 2026-10-01; Ryan to review"
+ }
+]

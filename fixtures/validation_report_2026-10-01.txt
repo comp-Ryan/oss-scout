@@ -1,0 +1,13 @@
+Classifier validation (jev:jev-latest)
+
+category: n=60 agreement=80% confidence_std=0.17 -> KEEP (passes both rules)
+  distribution: ai_agents_llm 45%, dev_tools_cli 17%, other 17%, web_frontend 
+12%, prediction_markets_finance 5%, quant_trading 3%, data_scraping 2%
+kind: n=60 agreement=85% confidence_std=0.20 -> KEEP (passes both rules)
+  distribution: feature 42%, bug 30%, chore 15%, docs 10%, test 3%
+difficulty: n=60 agreement=68% confidence_std=0.23 -> KEEP (passes both rules)
+  distribution: medium 43%, small 33%, large 23%
+worth_a_look: n=60 agreement=78% confidence_std=0.28 -> KEEP (passes both rules)
+  distribution: yes 63%, no 37%
+
+No questions dropped.

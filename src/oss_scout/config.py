@@ -59,6 +59,7 @@ class Config:
     language_fit: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LANGUAGE_FIT))
     shortlist_count: int = 20
     shortlist_floor: float = 4.0
+    shortlist_per_repo_cap: int = 3  # keeps one big repo from filling the whole shortlist
     dismiss_confidence: float = 0.9
     jev_model: str = "jev-latest"
     dropped_questions: list[str] = field(default_factory=list)

@@ -20,3 +20,11 @@ def test_render_table_has_a_row_per_item(tmp_path):
     conn = db.connect(tmp_path / "t.db"); _seed(conn, "I1", 5.0, "quant_trading")
     t = queue_view.render_table(queue_view.queue_rows(conn, None, None, 10))
     assert t.row_count == 1
+
+def test_render_table_keeps_rows_on_one_line(tmp_path):
+    conn = db.connect(tmp_path / "t.db"); _seed(conn, "I1", 5.0, "quant_trading")
+    conn.execute("update issues set title = ?", ("x" * 300,)); conn.commit()
+    t = queue_view.render_table(queue_view.queue_rows(conn, None, None, 10))
+    title_col = [c for c in t.columns if c.header == "title"][0]
+    assert title_col.no_wrap and title_col.overflow == "ellipsis"
+    assert all(c.no_wrap for c in t.columns)

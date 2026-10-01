@@ -85,3 +85,17 @@ def test_run_scoring_ignores_dismissed(tmp_path):
     _seed(conn, "A", 50000, state="dismissed")
     s = score.run_scoring(conn, Config(), NOW)
     assert s.scored == 0
+
+def test_shortlist_caps_issues_per_repo(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    conn.execute("insert into repos(full_name, stars, language, org_known, external_merge_rate, median_first_response_hours, ai_policy) values ('big/repo', 90000, 'Python', 1, 0.8, 2.0, 'none')")
+    for n in range(5):
+        conn.execute("insert into issues(id, repo, number, title, url, state, updated_at, harvested_at, last_seen_at) values (?,'big/repo',?,'t','u','classified','2026-10-01T00:00:00Z','x','x')", (f"B{n}", n))
+        for q, c in [("category", "quant_trading"), ("kind", "bug"), ("difficulty", "small"), ("worth_a_look", "yes")]:
+            conn.execute("insert into classifications(issue_id, question, choice, confidence, probabilities, model, asked_at) values (?,?,?,0.9,'{}','stub','x')", (f"B{n}", q, c))
+    _seed(conn, "S", 300)
+    conn.commit()
+    s = score.run_scoring(conn, Config(shortlist_count=4, shortlist_floor=4.0, shortlist_per_repo_cap=2), NOW)
+    states = {r["id"]: r["state"] for r in conn.execute("select id, state from issues")}
+    assert sum(1 for i, st in states.items() if i.startswith("B") and st == "shortlisted") == 2
+    assert states["S"] == "shortlisted"  # the small repo gets in because the big one is capped

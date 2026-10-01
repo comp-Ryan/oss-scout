@@ -34,9 +34,10 @@ def queue_rows(conn, category: str | None, state: str | None, limit: int) -> lis
 
 
 def render_table(rows: list[dict]) -> Table:
-    t = Table(title="OSS Scout queue")
-    for col in ("#", "score", "repo", "issue", "cat", "kind", "diff", "state", "title"):
-        t.add_column(col)
+    t = Table(title="OSS Scout queue", expand=False)
+    for col in ("#", "score", "repo", "issue", "cat", "kind", "diff", "state"):
+        t.add_column(col, no_wrap=True, overflow="ellipsis")
+    t.add_column("title", no_wrap=True, overflow="ellipsis", max_width=60)
     for r in rows:
         t.add_row(str(r["rank"]), f"{r['score']:.1f}", r["repo"], f"#{r['number']}", r.get("category") or "?",
                   r.get("kind") or "?", r.get("difficulty") or "?", r["state"], (r["title"] or "")[:70])

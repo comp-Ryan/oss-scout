@@ -84,10 +84,18 @@ def run_scoring(conn, cfg: Config, now: datetime | None = None) -> ScoreSummary:
             conn.execute("insert into scores(issue_id, total, breakdown, weights_hash, scored_at) values (?,?,?,?,?)",
                          (issue["id"], total, json.dumps(breakdown), h, utcnow()))
         s.scored += 1
-        ranked.append((total, issue["id"], issue["state"]))
+        ranked.append((total, issue["id"], issue["state"], issue["repo"]))
     ranked.sort(key=lambda t: -t[0])
-    keep = {iid for total, iid, _ in ranked[: cfg.shortlist_count] if total >= cfg.shortlist_floor}
-    for total, iid, state in ranked:
+    keep: set[str] = set()
+    per_repo: dict[str, int] = {}
+    for total, iid, _, repo in ranked:
+        if len(keep) >= cfg.shortlist_count or total < cfg.shortlist_floor:
+            break
+        if per_repo.get(repo, 0) >= cfg.shortlist_per_repo_cap:
+            continue
+        keep.add(iid)
+        per_repo[repo] = per_repo.get(repo, 0) + 1
+    for total, iid, state, _ in ranked:
         if iid in keep and state == "classified":
             transitions.apply(conn, iid, "shortlisted", "scorer", f"score {total}")
             s.shortlisted += 1

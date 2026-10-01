@@ -103,8 +103,17 @@ configured page cap (default 3 pages per query):
   label:"good first issue"` and the same with `label:"help wanted"`.
 - For each category keyword list in config (for example `backtest`, `polymarket`, `kalshi`, `mcp server`,
   `langchain`): `is:issue is:open no:assignee updated:>=<30 days ago> <keyword> in:title,body`.
-- Bounty sweep: `label:bounty` plus the Algora public issues feed if its unauthenticated endpoint is available;
-  if not, bounty detection is label-only and the spec notes it.
+- Bounty sweep: `label:bounty`. Algora has no public JSON feed (checked 2026-10-01), so bounty detection is
+  label-only.
+- Repo-first source (added after the first live run, 2026-10-01): repository search
+  `stars:>=<min_stars> pushed:>=<idle cutoff> language:<lang> good-first-issues:>=1` (and
+  `help-wanted-issues:>=1`), sorted by stars, `repo_pages_per_query` pages (default 1). For each repo found,
+  the REST issue list filtered to open, unassigned, one good label, updated within the window. This is the
+  source that reaches recognized repos; the issue search above is dominated by repos under the star floor.
+
+Before any per-repo signal fetch, repos never seen before go through one batched GraphQL call (50 per call)
+for stars and push date. Repos under the floor, idle, or missing are recorded as excluded without further
+calls. The first live run excluded 92% of repos this way.
 
 Per new repo, fetch once and refresh every 7 days: stars, language, pushed_at, the last 30 merged PRs with
 author association (to compute `external_merge_rate`), first-maintainer-response times on the last 20 issues,

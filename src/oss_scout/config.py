@@ -30,6 +30,8 @@ class Config:
     issue_updated_within_days: int = 30
     pages_per_query: int = 3
     per_page: int = 100
+    repo_pages_per_query: int = 1
+    repo_qualifiers: list[str] = field(default_factory=lambda: ["good-first-issues", "help-wanted-issues"])
     languages: list[str] = field(default_factory=lambda: ["Python", "TypeScript"])
     good_labels: list[str] = field(default_factory=lambda: ["good first issue", "help wanted"])
     bounty_labels: list[str] = field(default_factory=lambda: ["bounty", "💎 bounty", "algora", "💰 bounty"])

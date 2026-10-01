@@ -92,6 +92,24 @@ class GitHubClient:
             if len(items) < per_page:
                 return
 
+    def search_repos(self, q: str, pages: int, per_page: int = 100) -> Iterator[dict]:
+        for page in range(1, pages + 1):
+            data, _ = self.rest("search/repositories", {"q": q, "sort": "stars", "order": "desc", "per_page": per_page, "page": page})
+            items = data.get("items", []) if data else []
+            yield from items
+            if len(items) < per_page:
+                return
+
+    def list_issues(self, owner: str, name: str, label: str, since: str, pages: int = 2, per_page: int = 100) -> Iterator[dict]:
+        """Open, unassigned issues carrying one label, updated since the cutoff. Items share the search-item shape."""
+        for page in range(1, pages + 1):
+            data, _ = self.rest(f"repos/{owner}/{name}/issues", {
+                "state": "open", "assignee": "none", "labels": label, "since": since, "per_page": per_page, "page": page})
+            items = data or []
+            yield from items
+            if len(items) < per_page:
+                return
+
     REPO_SIGNALS_QUERY = """
     query($owner:String!,$name:String!){
       repository(owner:$owner,name:$name){

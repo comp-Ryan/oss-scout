@@ -73,6 +73,10 @@ class FakeGH:
         return self.contributing.get(f"{owner}/{name}")
     def repo_basics(self, names):
         return {n: ({"stars": self.signals[n]["stars"], "pushed_at": self.signals[n]["pushed_at"]} if n in self.signals else None) for n in names}
+    def search_repos(self, q, pages, per_page=100):
+        yield from ()
+    def list_issues(self, owner, name, label, since, pages=2, per_page=100):
+        return []
 
 def _item(node_id, repo, number=1, title="t"):
     return {"node_id": node_id, "number": number, "title": title, "body": "b", "html_url": f"https://github.com/{repo}/issues/{number}",
@@ -160,3 +164,32 @@ def test_run_harvest_prefilters_repos_in_batch_before_signal_calls(tmp_path):
     assert s.new_issues == 1 and s.excluded_repos == 2
     assert conn.execute("select excluded_reason from repos where full_name='o/small'").fetchone()[0] == "stars<200"
     assert conn.execute("select excluded_reason from repos where full_name='o/gone'").fetchone()[0] == "not_found"
+
+def test_build_repo_queries_use_star_floor_idle_cutoff_and_qualifiers():
+    cfg = Config(languages=["Python"], min_stars=200, repo_idle_days=60)
+    qs = harvest.build_repo_queries(cfg, date(2026, 10, 1))
+    assert qs == ["stars:>=200 pushed:>=2026-08-02 language:Python good-first-issues:>=1",
+                  "stars:>=200 pushed:>=2026-08-02 language:Python help-wanted-issues:>=1"]
+
+def test_run_harvest_pulls_issues_from_repo_first_source_and_dedupes(tmp_path):
+    cfg = _cfg()
+    q = harvest.build_queries(cfg, NOW.date())[0]
+    rq = harvest.build_repo_queries(cfg, NOW.date())[0]
+    class GH(FakeGH):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k); self.list_calls = []
+        def search_repos(self, q, pages, per_page=100):
+            if q == rq:
+                yield {"full_name": "big/repo", "stargazers_count": 5000, "pushed_at": "2026-09-30T00:00:00Z"}
+        def list_issues(self, owner, name, label, since, pages=2, per_page=100):
+            self.list_calls.append((f"{owner}/{name}", label, since))
+            if label == "good first issue":
+                return [_item("I1", "big/repo", 1), {**_item("P9", "big/repo", 9), "pull_request": {"url": "x"}}]
+            return []
+    gh = GH({q: [_item("I1", "big/repo", 1), _item("I2", "o/good", 2)]}, {"big/repo": {**GOOD, "stars": 5000}, "o/good": GOOD})
+    conn = db.connect(tmp_path / "t.db")
+    s = harvest.run_harvest(conn, gh, cfg, NOW)
+    assert s.repos_discovered == 1
+    assert gh.list_calls == [("big/repo", "good first issue", "2026-09-01T00:00:00Z")]
+    assert s.new_issues == 2 and s.seen == 2  # I1 seen once despite two sources; the PR is skipped
+    assert {r[0] for r in conn.execute("select id from issues")} == {"I1", "I2"}

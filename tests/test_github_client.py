@@ -122,3 +122,19 @@ def test_repo_basics_batches_with_aliases_and_handles_missing():
     body = json.loads(calls[0].data)
     assert 'r0: repository(owner:"o", name:"a")' in body["query"]
     assert len(calls) == 1
+
+def test_search_repos_sorts_by_stars_and_paginates():
+    page1 = {"items": [{"full_name": "a/b", "stargazers_count": 5}]}
+    c, calls, _ = make_client([FakeResp(page1)])
+    items = list(c.search_repos("stars:>=200", pages=3, per_page=2))
+    assert [i["full_name"] for i in items] == ["a/b"]
+    assert "search/repositories?" in calls[0].full_url and "sort=stars" in calls[0].full_url and "order=desc" in calls[0].full_url
+
+def test_list_issues_filters_open_unassigned_label_since():
+    c, calls, _ = make_client([FakeResp([{"number": 1}, {"number": 2}]), FakeResp([{"number": 3}])])
+    items = list(c.list_issues("o", "r", "good first issue", since="2026-09-01T00:00:00Z", pages=2, per_page=2))
+    assert [i["number"] for i in items] == [1, 2, 3]
+    url = calls[0].full_url
+    assert url.startswith("https://api.github.com/repos/o/r/issues?")
+    for part in ("state=open", "assignee=none", "labels=good+first+issue", "since=2026-09-01T00%3A00%3A00Z", "per_page=2", "page=1"):
+        assert part in url, part

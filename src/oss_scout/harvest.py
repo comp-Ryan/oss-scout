@@ -14,6 +14,7 @@ BASE = "is:issue is:open no:assignee"
 @dataclass
 class HarvestSummary:
     queries: int = 0
+    repos_discovered: int = 0
     seen: int = 0
     new_issues: int = 0
     updated_issues: int = 0
@@ -44,6 +45,13 @@ def build_queries(cfg: Config, today: date) -> list[str]:
     for label in cfg.bounty_labels:
         qs.append(f'{base} label:"{label}"')
     return qs
+
+
+def build_repo_queries(cfg: Config, today: date) -> list[str]:
+    """Repo-first discovery: repos above the star floor that advertise good-first or help-wanted issues."""
+    pushed = (today - timedelta(days=cfg.repo_idle_days)).isoformat()
+    return [f"stars:>={cfg.min_stars} pushed:>={pushed} language:{lang} {qual}:>=1"
+            for lang in cfg.languages for qual in cfg.repo_qualifiers]
 
 
 def external_merge_rate(merged_prs: list[dict]) -> float | None:
@@ -175,22 +183,45 @@ def run_harvest(conn, gh, cfg: Config, now: datetime | None = None) -> HarvestSu
     s = HarvestSummary()
     seen_ids: set[str] = set()
     rows: list[dict] = []
+
+    def take(item: dict) -> None:
+        if item.get("pull_request"):
+            return
+        row = issue_from_search_item(item, cfg)
+        if row["id"] in seen_ids:
+            return
+        seen_ids.add(row["id"])
+        s.seen += 1
+        rows.append(row)
+
+    # Source 1: issue search by label and keyword (finds niche repos the star floor would otherwise hide).
     for q in build_queries(cfg, now.date()):
         s.queries += 1
         try:
-            items = list(gh.search_issues(q, pages=cfg.pages_per_query, per_page=cfg.per_page))
+            for item in gh.search_issues(q, pages=cfg.pages_per_query, per_page=cfg.per_page):
+                take(item)
         except Exception as e:  # one bad query never aborts the pass
             s.errors.append(f"{q}: {e}")
-            continue
-        for item in items:
-            if item.get("pull_request"):
-                continue
-            row = issue_from_search_item(item, cfg)
-            if row["id"] in seen_ids:
-                continue
-            seen_ids.add(row["id"])
-            s.seen += 1
-            rows.append(row)
+
+    # Source 2: repo-first. Recognized repos above the star floor, then their labelled open issues.
+    since = f"{(now.date() - timedelta(days=cfg.issue_updated_within_days)).isoformat()}T00:00:00Z"
+    discovered: dict[str, None] = {}
+    for q in build_repo_queries(cfg, now.date()):
+        s.queries += 1
+        try:
+            for repo in gh.search_repos(q, pages=cfg.repo_pages_per_query, per_page=cfg.per_page):
+                discovered.setdefault(repo["full_name"], None)
+        except Exception as e:
+            s.errors.append(f"{q}: {e}")
+    s.repos_discovered = len(discovered)
+    for full_name in discovered:
+        owner, name = full_name.split("/", 1)
+        for label in cfg.good_labels:
+            try:
+                for item in gh.list_issues(owner, name, label, since):
+                    take(item)
+            except Exception as e:
+                s.errors.append(f"{full_name} [{label}]: {e}")
 
     known = {r[0] for r in conn.execute("select full_name from repos")}
     unknown = [name for name in dict.fromkeys(r["repo"] for r in rows) if name not in known]

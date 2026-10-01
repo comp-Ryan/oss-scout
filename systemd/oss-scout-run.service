@@ -1,0 +1,8 @@
+[Unit]
+Description=OSS Scout hourly harvest, classify, score
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ryan/Coding_Projects/business projects/oss-scout
+ExecStart=/home/ryan/.local/bin/uv run scout run

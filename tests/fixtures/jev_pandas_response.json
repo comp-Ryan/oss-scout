@@ -1,0 +1,14 @@
+{
+ "model": "jev-1.13.0",
+ "answers": {
+  "category": {"type": "choice", "choice": "data_scraping", "confidence": 1.0,
+   "probabilities": {"web_frontend": 0.0, "ai_agents_llm": 0.0, "dev_tools_cli": 0.0, "prediction_markets_finance": 0.0, "quant_trading": 0.0, "other": 0.0, "data_scraping": 1.0}},
+  "kind": {"type": "choice", "choice": "bug", "confidence": 1.0,
+   "probabilities": {"bug": 1.0, "docs": 0.0, "feature": 0.0, "test": 0.0, "chore": 0.0}},
+  "difficulty": {"type": "choice", "choice": "medium", "confidence": 0.66,
+   "probabilities": {"large": 0.0, "small": 0.23, "medium": 0.77}},
+  "worth_a_look": {"type": "choice", "choice": "yes", "confidence": 0.95,
+   "probabilities": {"yes": 0.97, "no": 0.03}}
+ },
+ "usage": {"input_tokens": 801, "output_tokens": 203}
+}

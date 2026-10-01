@@ -349,3 +349,22 @@ def test_seed_repos_feed_the_harvest_with_their_label(tmp_path):
     assert got == {"seed/labeled": "resume", "seed/plain": "discover"}
     src = {r[0]: r[1] for r in conn.execute("select full_name, source from repos")}
     assert src["seed/plain"] == "seed:gittrend" and src["seed/tiny"] == "seed:gittrend" and s.seeds == 3
+
+def test_seed_repos_are_capped_per_run_and_unknown_ones_go_first(tmp_path):
+    cfg = Config(languages=["Python"], good_labels=["good first issue"], category_keywords={}, bounty_labels=[], discover_topics={}, seed_repos_per_run=2)
+    class GH(FakeGH):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k); self.listed = []
+        def list_issues(self, owner, name, label, since, pages=2, per_page=100):
+            self.listed.append(f"{owner}/{name}")
+            return [_item(f"I-{name}", f"{owner}/{name}", 1)]
+    sig = {n: {**GOOD, "stars": 500} for n in ("s/a", "s/b", "s/c", "s/d")}
+    gh = GH({}, sig)
+    conn = db.connect(tmp_path / "t.db")
+    conn.execute("insert into repos(full_name, stars, source, signals_fetched_at) values ('s/a', 500, 'seed:x', '2026-09-30T00:00:00Z')"); conn.commit()
+    rows = [{"full_name": n, "source": "seed:x"} for n in ("s/a", "s/b", "s/c", "s/d")]
+    s = harvest.run_harvest(conn, gh, cfg, NOW, seeds_fn=lambda cfg_: rows)
+    assert gh.listed == ["s/b", "s/c"] and s.seeds == 2   # two unknown first; s/a (known) and s/d wait for the next run
+    gh.listed.clear()
+    harvest.run_harvest(conn, gh, cfg, NOW + timedelta(hours=1), seeds_fn=lambda cfg_: rows)
+    assert gh.listed == ["s/d", "s/a"]  # the last unknown, then the known one with the oldest signals

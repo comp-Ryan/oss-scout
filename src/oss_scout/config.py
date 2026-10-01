@@ -72,6 +72,7 @@ class Config:
     # Seed lists: sites and repos that point at other repos. Fetched once a day, cached under data/seeds.
     seed_sources: list[str] = field(default_factory=lambda: ["gittrend", "up_for_grabs", "good_first_issue", "awesome_for_beginners"])
     seed_refresh_hours: float = 24.0
+    seed_repos_per_run: int = 150  # the lists hold ~1,900 repos; each hourly run works through this many
     gittrend_pages: list[str] = field(default_factory=lambda: ["rising", "hidden-gems", "trending/ai-agent", "trending/ai-coding-assistant"])
     github_min_interval: float = 0.25  # seconds between GitHub requests; stays under the secondary rate limit
     github_search_min_interval: float = 2.1  # search bucket is 30/min and trips a secondary limit when burst

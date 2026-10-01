@@ -328,11 +328,15 @@ def run_harvest(conn, gh, cfg: Config, now: datetime | None = None, shell=None, 
     # Source 4: seed lists (sites and repos that point at repos). No stars known up front: the pre-filter fetches them.
     seed_labels: dict[str, str | None] = {}
     try:
-        for r in seeds_fn(cfg):
+        seed_rows = [r for r in seeds_fn(cfg) if r["full_name"] not in discovered and r["full_name"] not in meta]
+        known_at = {r["full_name"]: (r["signals_fetched_at"] or "") for r in conn.execute("select full_name, signals_fetched_at from repos")}
+        # Unknown repos first, then known ones with the oldest signals, up to the per-run cap.
+        seed_rows.sort(key=lambda r: (r["full_name"] in known_at, known_at.get(r["full_name"], "")))
+        for r in seed_rows[: cfg.seed_repos_per_run]:
             full_name = r["full_name"]
-            if full_name in discovered or full_name in meta:
-                continue
-            meta[full_name] = {"source": r.get("source", "seed"), "stars": None, "pushed_at": None, "created_at": None, "rising": 0}
+            known = conn.execute("select stars, pushed_at, created_at from repos where full_name = ?", (full_name,)).fetchone()
+            meta[full_name] = {"source": r.get("source", "seed"), "stars": known["stars"] if known else None,
+                               "pushed_at": known["pushed_at"] if known else None, "created_at": known["created_at"] if known else None, "rising": 0}
             seed_labels[full_name] = r.get("label")
             s.seeds += 1
     except Exception as e:

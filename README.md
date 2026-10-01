@@ -108,6 +108,13 @@ repo-first pass that searches repositories above the star floor advertising good
 counts and lists their open unassigned issues (this is what reaches the recognized repos). Repos never seen
 before are checked for stars and activity in batches of 50 before any expensive per-repo call.
 
+Two more sources feed the discover lane. **Seed lists** (`scout seeds`): gittrend.io's rising and hidden-gems
+pages, up-for-grabs.net's project files, goodfirstissue.dev's list, and awesome-for-beginners, fetched once
+a day and cached under `data/seeds/`, worked through `seed_repos_per_run` repos per hourly run. **Star
+velocity**: every star count the harvester sees is kept in `repo_star_history`; after two samples a day apart
+the repo gets `stars_per_day`, shown on cards as "+N/day", sortable as "rising fast", and counted as rising
+above `rising_stars_per_day`.
+
 Repos whose contributing docs ban AI-generated PRs are excluded entirely, as are repos under the star floor,
 repos idle for 60 days, and issues that already have an open PR that would close them.
 

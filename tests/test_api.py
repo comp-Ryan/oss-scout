@@ -130,3 +130,49 @@ def test_prep_launch_submit_endpoints(tmp_path, monkeypatch):
     r = c.post("/api/issues/I1/submit", json={"title": "t", "body": "b"})
     assert r.status_code == 409 and "FAILED test_y" in r.json()["detail"]
     assert c.get("/api/issues/I1").json()["issue"]["state"] == "discussing"
+
+def test_queue_lane_param_and_status_extras(tmp_path):
+    cfg = Config(data_dir=tmp_path); _seed(cfg, state="shortlisted")
+    conn = db.connect(cfg.db_path); conn.execute("update issues set lane='discover'"); conn.commit(); conn.close()
+    (tmp_path / "scout.log").write_text("2026-10-01 09:46:07,000 INFO harvest HarvestSummary(queries=1)\n2026-10-01 09:47:00,000 INFO score ScoreSummary(scored=3, shortlisted=1, demoted=0)\n")
+    def timers(cmd, **kw):
+        class R: stdout = "NEXT                        LEFT LAST PASSED UNIT ACTIVATES\nThu 2026-10-01 10:46:07 PDT 40min Thu 2026-10-01 09:46:07 PDT 19min ago oss-scout-run.timer oss-scout-run.service\n"; returncode = 0
+        return R()
+    c = TestClient(create_app(cfg, chat_runner=lambda cmd, **kw: OK(), web_dist=tmp_path / "nodist", sysrun=timers))
+    assert c.get("/api/queue", params={"lane": "resume"}).json() == []
+    assert c.get("/api/queue", params={"lane": "discover"}).json()[0]["lane"] == "discover"
+    st = c.get("/api/status").json()
+    assert st["labels"]["shortlisted"] == "top picks" and st["lanes"] == {"discover": 1}
+    assert st["last_run"] == "2026-10-01 09:47:00" and st["next_run"].startswith("Thu 2026-10-01 10:46")
+    assert st["board_order"][0] == "Picked"
+
+def test_analyze_endpoint_runs_in_background_and_returns_run_id(tmp_path):
+    cfg = Config(data_dir=tmp_path); _seed(cfg, state="shortlisted")
+    started = []
+    def fake_run_one(conn, cfg_, gh, issue_id, **kw):
+        started.append(issue_id)
+        with conn:
+            cur = conn.execute("insert into agent_runs(issue_id, model, status, started_at) values (?, 'm', 'running', 'x')", (issue_id,))
+        return cur.lastrowid
+    c = TestClient(create_app(cfg, chat_runner=lambda cmd, **kw: OK(), web_dist=tmp_path / "nodist", analyze_fn=fake_run_one, spawn=lambda fn: fn()))
+    r = c.post("/api/issues/I1/analyze")
+    assert r.status_code == 200 and r.json()["run_id"] > 0 and started == ["I1"]
+    assert c.post("/api/issues/nope/analyze").status_code == 404
+    conn = db.connect(cfg.db_path); conn.execute("update issues set state='dismissed'"); conn.commit(); conn.close()
+    assert c.post("/api/issues/I1/analyze").status_code == 409
+
+def test_board_and_move(tmp_path):
+    cfg = Config(data_dir=tmp_path); _seed(cfg, state="analyzed")
+    c = TestClient(create_app(cfg, chat_runner=lambda cmd, **kw: OK(), web_dist=tmp_path / "nodist"))
+    b = c.get("/api/board").json()
+    assert [col["name"] for col in b["columns"]] == ["Picked", "Working on", "PR opened", "Progressing", "Accepted"]
+    assert b["columns"][0]["cards"][0]["id"] == "I1" and b["columns"][0]["cards"][0]["label"] == "brief ready"
+    assert c.post("/api/issues/I1/move", json={"column": "Working on"}).json()["state"] == "discussing"
+    assert c.post("/api/issues/I1/move", json={"column": "PR opened"}).status_code == 422  # needs pr_url when no draft
+    r = c.post("/api/issues/I1/move", json={"column": "PR opened", "pr_url": "https://github.com/o/r/pull/9"})
+    assert r.json()["state"] == "pr_open" and c.get("/api/issues/I1").json()["draft"]["pr_url"].endswith("/pull/9")
+    assert c.post("/api/issues/I1/move", json={"column": "Progressing"}).json()["state"] == "in_review"
+    assert c.post("/api/issues/I1/move", json={"column": "Accepted"}).json()["state"] == "merged"
+    assert c.post("/api/issues/I1/move", json={"column": "Picked"}).status_code == 409
+    assert c.post("/api/issues/I1/move", json={"column": "Nope"}).status_code == 422
+    assert c.get("/api/board").json()["columns"][4]["cards"][0]["id"] == "I1"

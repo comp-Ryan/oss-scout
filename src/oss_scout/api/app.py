@@ -1,6 +1,8 @@
 from __future__ import annotations
 import json
+import re
 import subprocess
+import threading
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
@@ -9,7 +11,7 @@ from pydantic import BaseModel
 from oss_scout import classify, db, queue_view, score, transitions
 from oss_scout.agents import analysis, chat, draft
 from oss_scout.config import PROJECT_ROOT, Config, load_config, update_yaml
-from oss_scout.transitions import InvalidTransition
+from oss_scout.transitions import BOARD_COLUMNS, BOARD_ORDER, BOARD_TARGETS, LABELS, InvalidTransition
 
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
@@ -36,9 +38,43 @@ class Submit(BaseModel):
     body: str | None = None
 
 
+class Move(BaseModel):
+    column: str
+    pr_url: str | None = None
+
+
+def last_run_from_log(path: Path) -> str | None:
+    """Timestamp of the last pipeline step line in scout.log, as 'YYYY-MM-DD HH:MM:SS' local time."""
+    if not path.exists():
+        return None
+    last = None
+    with open(path, errors="replace") as f:
+        for line in f:
+            if " INFO harvest " in line or " INFO classify " in line or " INFO score " in line or " INFO analyze " in line:
+                last = line[:19]
+    return last
+
+
+def next_timer_run(sysrun) -> str | None:
+    try:
+        r = sysrun(["systemctl", "--user", "list-timers", "oss-scout-run.timer", "--no-pager"], capture_output=True, text=True, timeout=5)
+        for line in (r.stdout or "").splitlines():
+            if "oss-scout-run.timer" in line:
+                m = re.match(r"^(\S+ \S+ \S+ \S+)", line.strip())
+                return m.group(1) if m else line.strip()[:32]
+    except Exception:
+        return None
+    return None
+
+
+class _NoGH:
+    def related_prs(self, node_id):
+        return []
+
+
 def create_app(cfg: Config, *, chat_runner=subprocess.run, gh_factory=None, config_path: Path | None = None,
                web_dist: Path | None = None, shell=draft.default_shell, popen=subprocess.Popen,
-               github_user: str | None = None) -> FastAPI:
+               github_user: str | None = None, analyze_fn=analysis.run_one, spawn=None, sysrun=subprocess.run) -> FastAPI:
     """Read-mostly JSON API over the same modules the CLI uses. Nothing here talks to GitHub except
     the related-PR lookup that seeds a chat, and that is a read."""
     app = FastAPI(title="OSS Scout")
@@ -52,17 +88,90 @@ def create_app(cfg: Config, *, chat_runner=subprocess.run, gh_factory=None, conf
             raise HTTPException(404, f"no issue {issue_id}")
         return dict(row)
 
+    def _spawn(fn):
+        if spawn is not None:
+            return spawn(fn)
+        t = threading.Thread(target=fn, daemon=True)
+        t.start()
+
     @app.get("/api/status")
     def status():
         c = conn()
         counts = {r["state"]: r["n"] for r in c.execute("select state, count(*) n from issues group by state")}
+        lanes = {r["lane"]: r["n"] for r in c.execute("select lane, count(*) n from issues where state in ('shortlisted','analyzed') group by lane")}
         last = c.execute("select at from transitions order by id desc limit 1").fetchone()
         repos = c.execute("select count(*), sum(excluded_reason is not null) from repos").fetchone()
-        return {"issues": counts, "last_transition": last[0] if last else None, "repos": repos[0], "repos_excluded": repos[1] or 0}
+        today = c.execute("select count(*), coalesce(sum(input_tokens),0), coalesce(sum(output_tokens),0) from agent_runs where started_at >= date('now')").fetchone()
+        return {"issues": counts, "lanes": lanes, "last_transition": last[0] if last else None, "repos": repos[0], "repos_excluded": repos[1] or 0,
+                "runs_today": today[0], "tokens_in_today": today[1], "tokens_out_today": today[2],
+                "last_run": last_run_from_log(cfg.log_path), "next_run": next_timer_run(sysrun),
+                "labels": LABELS, "board_order": BOARD_ORDER}
 
     @app.get("/api/queue")
-    def queue(category: str | None = None, state: str | None = None, limit: int = 50):
-        return queue_view.queue_rows(conn(), category, state, limit)
+    def queue(category: str | None = None, state: str | None = None, limit: int = 50, lane: str | None = None):
+        return queue_view.queue_rows(conn(), category, state, limit, lane)
+
+    @app.post("/api/issues/{issue_id}/analyze")
+    def analyze(issue_id: str):
+        c = conn()
+        issue = issue_or_404(c, issue_id)
+        if issue["state"] not in ("shortlisted", "classified", "analyzed", "discussing"):
+            raise HTTPException(409, f"cannot analyze an issue that is {issue['state']}")
+        if issue["state"] == "classified":
+            transitions.apply(c, issue_id, "shortlisted", "scorer", "picked by hand")
+        box: dict = {}
+        def run():
+            box["run_id"] = analyze_fn(db.connect(cfg.db_path), cfg, gh_factory() if gh_factory else _NoGH(), issue_id)
+        if spawn is not None:
+            spawn(run)
+            return {"run_id": box.get("run_id", 0), "issue": issue_id}
+        # Real mode: insert the run row first so the UI can follow it, then let the thread do the rest.
+        _spawn(run)
+        import time
+        for _ in range(20):
+            row = c.execute("select id from agent_runs where issue_id = ? order by id desc limit 1", (issue_id,)).fetchone()
+            if row:
+                return {"run_id": row[0], "issue": issue_id}
+            time.sleep(0.1)
+        return {"run_id": 0, "issue": issue_id}
+
+    @app.get("/api/board")
+    def board():
+        c = conn()
+        states = list(BOARD_COLUMNS)
+        rows = [dict(r) for r in c.execute(
+            f"select i.id, i.repo, i.number, i.title, i.url, i.state, i.lane, r.stars, r.language, "
+            f"(select pr_url from drafts d where d.issue_id = i.id) as pr_url "
+            f"from issues i join repos r on r.full_name = i.repo where i.state in ({','.join('?' * len(states))}) order by i.id", states)]
+        cols = {name: [] for name in BOARD_ORDER}
+        for r in rows:
+            r["label"] = LABELS.get(r["state"], r["state"])
+            cols[BOARD_COLUMNS[r["state"]]].append(r)
+        return {"columns": [{"name": name, "cards": cols[name]} for name in BOARD_ORDER]}
+
+    @app.post("/api/issues/{issue_id}/move")
+    def move(issue_id: str, body: Move):
+        c = conn()
+        issue = issue_or_404(c, issue_id)
+        if body.column not in BOARD_TARGETS:
+            raise HTTPException(422, f"unknown column {body.column}; one of {BOARD_ORDER}")
+        target = BOARD_TARGETS[body.column]
+        if target == "pr_open":
+            d = draft.get(c, issue_id)
+            if not body.pr_url and not (d and d.get("pr_url")):
+                raise HTTPException(422, "pr_url is required when the PR was opened by hand")
+            if body.pr_url:
+                with c:
+                    c.execute("insert into drafts(issue_id, work_dir, worktree, branch, base_branch, brief_path, created_at, pr_url, submitted_at) "
+                              "values (?,'','','','','',?,?,?) on conflict(issue_id) do update set pr_url = excluded.pr_url, submitted_at = excluded.submitted_at",
+                              (issue_id, db.utcnow(), body.pr_url, db.utcnow()))
+        if issue["state"] == target:
+            return {"id": issue_id, "state": target}
+        try:
+            transitions.apply(c, issue_id, target, "user", f"board: {body.column}")
+        except InvalidTransition as e:
+            raise HTTPException(409, str(e))
+        return {"id": issue_id, "state": target}
 
     @app.get("/api/issues/{issue_id}")
     def issue_detail(issue_id: str):

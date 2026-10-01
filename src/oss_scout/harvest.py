@@ -1,0 +1,210 @@
+from __future__ import annotations
+import json
+import re
+import statistics
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
+from oss_scout import transitions
+from oss_scout.config import Config
+
+MAINTAINER = {"OWNER", "MEMBER", "COLLABORATOR"}
+BASE = "is:issue is:open no:assignee"
+
+
+@dataclass
+class HarvestSummary:
+    queries: int = 0
+    seen: int = 0
+    new_issues: int = 0
+    updated_issues: int = 0
+    excluded_repos: int = 0
+    skipped_linked_pr: int = 0
+    marked_stale: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+def _parse_ts(s: str) -> datetime:
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def build_queries(cfg: Config, today: date) -> list[str]:
+    since = (today - timedelta(days=cfg.issue_updated_within_days)).isoformat()
+    base = f"{BASE} updated:>={since}"
+    qs = []
+    for lang in cfg.languages:
+        for label in cfg.good_labels:
+            qs.append(f'{base} language:{lang} label:"{label}"')
+    for kws in cfg.category_keywords.values():
+        for kw in kws:
+            qs.append(f'{base} "{kw}" in:title,body')
+    for label in cfg.bounty_labels:
+        qs.append(f'{base} label:"{label}"')
+    return qs
+
+
+def external_merge_rate(merged_prs: list[dict]) -> float | None:
+    if not merged_prs:
+        return None
+    ext = sum(1 for p in merged_prs if p.get("authorAssociation") not in MAINTAINER)
+    return ext / len(merged_prs)
+
+
+def median_first_response_hours(issues: list[dict]) -> float | None:
+    hours = []
+    for i in issues:
+        try:
+            created = _parse_ts(i["createdAt"])
+        except (KeyError, ValueError):
+            continue
+        for c in i.get("comments", []):
+            if c.get("authorAssociation") in MAINTAINER:
+                hours.append((_parse_ts(c["createdAt"]) - created).total_seconds() / 3600)
+                break
+    return statistics.median(hours) if hours else None
+
+
+def detect_ai_policy(text: str | None, cfg: Config) -> str:
+    if not text:
+        return "none"
+    for pat in cfg.ai_policy_banned_patterns:
+        if re.search(pat, text, re.IGNORECASE):
+            return "banned"
+    for pat in cfg.ai_policy_discouraged_patterns:
+        if re.search(pat, text, re.IGNORECASE):
+            return "discouraged"
+    return "none"
+
+
+def repo_exclusion_reason(repo: dict, cfg: Config, now: datetime) -> str | None:
+    if (repo.get("stars") or 0) < cfg.min_stars:
+        return f"stars<{cfg.min_stars}"
+    pushed = repo.get("pushed_at")
+    if pushed and (now - _parse_ts(pushed)) > timedelta(days=cfg.repo_idle_days):
+        return f"idle>{cfg.repo_idle_days}d"
+    if repo.get("ai_policy") == "banned":
+        return "ai_policy_banned"
+    return None
+
+
+def issue_from_search_item(item: dict, cfg: Config) -> dict:
+    labels = [l["name"] for l in item.get("labels", [])]
+    lower = {l.lower() for l in labels}
+    bounty_labels = {b.lower() for b in cfg.bounty_labels}
+    has_bounty = int(bool(lower & bounty_labels))
+    return {
+        "id": item["node_id"],
+        "repo": item["repository_url"].split("/repos/", 1)[1],
+        "number": item["number"],
+        "title": item["title"],
+        "body": item.get("body") or "",
+        "labels": labels,
+        "url": item["html_url"],
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+        "comments": item.get("comments", 0),
+        "has_bounty": has_bounty,
+        "bounty_source": "label" if has_bounty else None,
+        "assignee": (item.get("assignee") or {}).get("login"),
+    }
+
+
+REPO_COLS = ["full_name", "stars", "language", "description", "pushed_at", "org_known", "external_merge_rate",
+             "median_first_response_hours", "signals_fetched_at", "contributing_text", "contributing_fetched_at",
+             "ai_policy", "excluded_reason"]
+
+
+def _ensure_repo(conn, gh, full_name: str, cfg: Config, now: datetime) -> dict:
+    row = conn.execute("select * from repos where full_name = ?", (full_name,)).fetchone()
+    repo = dict(row) if row else {"full_name": full_name}
+    owner, name = full_name.split("/", 1)
+    stale_signals = not repo.get("signals_fetched_at") or (now - _parse_ts(repo["signals_fetched_at"])) > timedelta(days=cfg.repo_signal_refresh_days)
+    if stale_signals:
+        sig = gh.repo_signals(owner, name)
+        repo.update({
+            "stars": sig["stars"], "pushed_at": sig["pushed_at"], "description": sig["description"],
+            "language": sig["language"], "org_known": int(owner in cfg.known_orgs),
+            "external_merge_rate": external_merge_rate(sig["merged_prs"]),
+            "median_first_response_hours": median_first_response_hours(sig["issues"]),
+            "signals_fetched_at": _iso(now),
+        })
+    stale_contrib = not repo.get("contributing_fetched_at") or (now - _parse_ts(repo["contributing_fetched_at"])) > timedelta(days=cfg.contributing_refresh_days)
+    if stale_contrib:
+        text = gh.contributing_text(owner, name)
+        repo.update({"contributing_text": text, "contributing_fetched_at": _iso(now), "ai_policy": detect_ai_policy(text, cfg)})
+    repo["excluded_reason"] = repo_exclusion_reason(repo, cfg, now)
+    values = [repo.get(c) for c in REPO_COLS]
+    with conn:
+        conn.execute(
+            f"insert into repos({','.join(REPO_COLS)}) values ({','.join('?' * len(REPO_COLS))}) "
+            f"on conflict(full_name) do update set {','.join(f'{c}=excluded.{c}' for c in REPO_COLS[1:])}", values)
+    return repo
+
+
+def run_harvest(conn, gh, cfg: Config, now: datetime | None = None) -> HarvestSummary:
+    now = now or datetime.now(timezone.utc)
+    s = HarvestSummary()
+    repo_cache: dict[str, dict] = {}
+    seen_ids: set[str] = set()
+    for q in build_queries(cfg, now.date()):
+        s.queries += 1
+        try:
+            items = list(gh.search_issues(q, pages=cfg.pages_per_query, per_page=cfg.per_page))
+        except Exception as e:  # one bad query never aborts the pass
+            s.errors.append(f"{q}: {e}")
+            continue
+        for item in items:
+            if item.get("pull_request"):
+                continue
+            row = issue_from_search_item(item, cfg)
+            if row["id"] in seen_ids:
+                continue
+            seen_ids.add(row["id"])
+            s.seen += 1
+            try:
+                _harvest_one(conn, gh, cfg, now, row, repo_cache, s)
+            except Exception as e:
+                s.errors.append(f"{row['repo']}#{row['number']}: {e}")
+    return s
+
+
+def _harvest_one(conn, gh, cfg, now, row, repo_cache, s: HarvestSummary) -> None:
+    existing = conn.execute("select state from issues where id = ?", (row["id"],)).fetchone()
+    if existing and existing["state"] in transitions.TERMINAL:
+        with conn:
+            conn.execute("update issues set last_seen_at = ? where id = ?", (_iso(now), row["id"]))
+        return
+    if row["repo"] not in repo_cache:
+        repo_cache[row["repo"]] = _ensure_repo(conn, gh, row["repo"], cfg, now)
+        if repo_cache[row["repo"]].get("excluded_reason"):
+            s.excluded_repos += 1
+    repo = repo_cache[row["repo"]]
+    if repo.get("excluded_reason"):
+        return
+    linked = gh.has_closing_pr(row["id"])
+    if existing:
+        if linked or row["assignee"]:
+            transitions.apply(conn, row["id"], "stale", "harvester", "linked PR" if linked else "assigned")
+            s.marked_stale += 1
+            return
+        with conn:
+            conn.execute(
+                "update issues set title=?, body=?, labels=?, updated_at=?, comments=?, has_bounty=?, bounty_source=?, last_seen_at=? where id=?",
+                (row["title"], row["body"], json.dumps(row["labels"]), row["updated_at"], row["comments"],
+                 row["has_bounty"], row["bounty_source"], _iso(now), row["id"]))
+        s.updated_issues += 1
+        return
+    if linked:
+        s.skipped_linked_pr += 1
+        return
+    with conn:
+        conn.execute(
+            "insert into issues(id, repo, number, title, body, labels, url, created_at, updated_at, comments, has_bounty, bounty_source, linked_pr, assignee, state, harvested_at, last_seen_at) "
+            "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'harvested',?,?)",
+            (row["id"], row["repo"], row["number"], row["title"], row["body"], json.dumps(row["labels"]), row["url"],
+             row["created_at"], row["updated_at"], row["comments"], row["has_bounty"], row["bounty_source"], 0,
+             row["assignee"], _iso(now), _iso(now)))
+    s.new_issues += 1

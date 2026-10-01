@@ -70,6 +70,9 @@ class Config:
     analysis_max_attempts: int = 2
     chat_model: str = "claude-sonnet-4-6"
     chat_timeout_s: float = 300.0
+    github_user: str = ""  # empty: ask `gh api user`
+    draft_model: str = "claude-sonnet-4-6"
+    submit_test_timeout_s: float = 900.0
     data_dir: Path = field(default_factory=lambda: PROJECT_ROOT / "data")
 
     @property
@@ -87,6 +90,14 @@ class Config:
     @property
     def clones_dir(self) -> Path:
         return self.data_dir / "clones"
+
+    @property
+    def work_dir(self) -> Path:
+        return self.data_dir / "work"
+
+    @property
+    def worktrees_dir(self) -> Path:
+        return self.data_dir / "worktrees"
 
 
 def load_config(path: Path | None = None) -> Config:

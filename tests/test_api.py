@@ -21,10 +21,10 @@ def _seed(cfg, state="analyzed"):
 class OK:
     stdout = json.dumps({"conversation_id": "c-1", "status": "SUCCESS", "response": "Reply", "usage": {}}); returncode = 0; stderr = ""
 
-def _client(tmp_path, state="analyzed", chat_runner=None):
+def _client(tmp_path, state="analyzed", chat_runner=None, web_dist=None):
     cfg = Config(data_dir=tmp_path)
     rid = _seed(cfg, state)
-    app = create_app(cfg, chat_runner=chat_runner or (lambda cmd, **kw: OK()))
+    app = create_app(cfg, chat_runner=chat_runner or (lambda cmd, **kw: OK()), web_dist=web_dist or tmp_path / "nodist")
     return TestClient(app), cfg, rid
 
 def test_status_and_queue(tmp_path):
@@ -80,6 +80,13 @@ def test_spa_fallback_when_dist_missing(tmp_path):
     c, _, _ = _client(tmp_path)
     r = c.get("/issues/I1")
     assert r.status_code == 200 and "web/dist" in r.text
+
+def test_spa_serves_index_for_any_route_when_dist_exists(tmp_path):
+    dist = tmp_path / "dist"; (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html><div id=root></div></html>"); (dist / "assets" / "a.js").write_text("1")
+    c, _, _ = _client(tmp_path, web_dist=dist)
+    assert "id=root" in c.get("/issues/I1").text and c.get("/assets/a.js").text == "1"
+    assert c.get("/api/status").status_code == 200  # api routes are not shadowed
 
 def test_settings_get_put_validates_and_rescores(tmp_path):
     cfg = Config(data_dir=tmp_path); _seed(cfg, state="shortlisted")  # the scorer only re-ranks classified/shortlisted

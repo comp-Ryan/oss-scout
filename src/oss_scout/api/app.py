@@ -31,7 +31,8 @@ class Settings(BaseModel):
     category_values: dict[str, float] | None = None
 
 
-def create_app(cfg: Config, *, chat_runner=subprocess.run, gh_factory=None, config_path: Path | None = None) -> FastAPI:
+def create_app(cfg: Config, *, chat_runner=subprocess.run, gh_factory=None, config_path: Path | None = None,
+               web_dist: Path | None = None) -> FastAPI:
     """Read-mostly JSON API over the same modules the CLI uses. Nothing here talks to GitHub except
     the related-PR lookup that seeds a chat, and that is a read."""
     app = FastAPI(title="OSS Scout")
@@ -166,12 +167,13 @@ def create_app(cfg: Config, *, chat_runner=subprocess.run, gh_factory=None, conf
         score.run_scoring(conn(), new)
         return {"weights": new.weights, "category_values": new.category_values}
 
-    if WEB_DIST.exists():
-        app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+    dist = web_dist or WEB_DIST
+    if dist.exists():
+        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
         @app.get("/{path:path}")
         def spa(path: str):
-            return FileResponse(WEB_DIST / "index.html")
+            return FileResponse(dist / "index.html")
     else:
         @app.get("/{path:path}")
         def hint(path: str):

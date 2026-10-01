@@ -65,6 +65,23 @@ Dev loop: `uv run scout serve` in one terminal, `cd web && npm run dev` in anoth
 `npm test` for the Vitest suite. Services: `oss-scout-run.timer` (hourly pipeline) and `oss-scout.service`
 (the API); `journalctl --user -u oss-scout -n 50` for logs.
 
+## Draft PR flow (Stage 4)
+
+The only part that writes to GitHub, and only on these explicit actions (buttons on the issue page or CLI):
+
+| action | state change | what happens |
+|---|---|---|
+| `uv run scout prep owner/repo#N` | `plan_approved -> drafting` | `gh repo fork` (idempotent), a partial clone of your fork under `data/work/`, `upstream` remote, a branch `scout/N-slug` in a worktree under `data/worktrees/`, and `BRIEF.md` with the issue, the agreed plan, the brief and the test command |
+| `uv run scout work owner/repo#N` | none | opens a terminal running `claude` in the worktree with the brief as the first prompt, and prints the command in case the terminal cannot open. `--agent` instead lets `agy` implement the plan headlessly (`accept-edits`); you still review and commit |
+| `uv run scout submit owner/repo#N [--title] [--body]` | `drafting -> pr_open`, or `-> discussing` if tests fail | refuses on uncommitted changes or no commits; runs the test command; pushes the branch to your fork; `gh pr create --draft` against upstream with "Closes #N" |
+
+Commits are yours. The bot never runs `git commit`, never marks a PR ready, never comments. The hourly
+run checks open draft PRs and moves the issue to `merged` or `closed` when GitHub says so.
+
+**First run note (2026-10-01):** the live fork, push and PR path has not been exercised; every git and gh
+call is covered by tests against a fake shell, but the first real `scout prep` and `scout submit` are
+yours to run and watch.
+
 ## Config
 
 `scout.yaml` overrides defaults in `src/oss_scout/config.py`. The keys you will actually tune:

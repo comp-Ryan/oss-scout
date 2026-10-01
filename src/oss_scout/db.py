@@ -3,9 +3,9 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
-SCHEMA = """
+SCHEMA_V1 = """
 create table if not exists meta (key text primary key, value text not null);
 create table if not exists repos (
   full_name text primary key,
@@ -52,6 +52,30 @@ create table if not exists transitions (
 create index if not exists transitions_issue on transitions(issue_id);
 """
 
+SCHEMA_V2 = """
+create table if not exists agent_runs (
+  id integer primary key autoincrement,
+  issue_id text not null references issues(id),
+  kind text not null default 'analysis',
+  model text not null,
+  status text not null default 'running',
+  attempt integer not null default 1,
+  started_at text not null, finished_at text,
+  conversation_id text, input_tokens integer, output_tokens integer, duration_s real,
+  brief text, error text
+);
+create index if not exists agent_runs_issue on agent_runs(issue_id);
+create index if not exists agent_runs_started on agent_runs(started_at);
+create table if not exists agent_events (
+  id integer primary key autoincrement,
+  run_id integer not null references agent_runs(id),
+  seq integer not null, at text not null, event text not null
+);
+create index if not exists agent_events_run on agent_events(run_id, seq);
+"""
+
+SCHEMA = SCHEMA_V1 + SCHEMA_V2
+
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -69,5 +93,5 @@ def connect(path: Path) -> sqlite3.Connection:
 
 def migrate(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
-    conn.execute("insert or ignore into meta(key, value) values ('schema_version', ?)", (SCHEMA_VERSION,))
+    conn.execute("insert into meta(key, value) values ('schema_version', ?) on conflict(key) do update set value = excluded.value", (SCHEMA_VERSION,))
     conn.commit()

@@ -5,7 +5,7 @@ import { useQueueParams } from './useQueueParams'
 
 const STATES = ['shortlisted', 'analyzed', 'discussing', 'plan_approved', 'pr_open', 'in_review', 'dismissed']
 const DIFFS = ['small', 'medium', 'large']
-const SORTS = [['score', 'best score'], ['easiest', 'easiest first'], ['hardest', 'hardest first'], ['stars', 'most stars'], ['newest', 'newest activity']]
+const SORTS = [['score', 'best score'], ['easiest', 'easiest first'], ['hardest', 'hardest first'], ['stars', 'most stars'], ['newest', 'newest activity'], ['rising', 'rising fast']]
 
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return <section className="mb-4"><h3 className="mb-1.5 text-[12px] font-medium text-faint">{title}</h3>{children}</section>

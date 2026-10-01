@@ -1,6 +1,6 @@
 export type QueueRow = { id: string; rank: number; score: number; repo: string; number: number; title: string; url: string;
   state: string; category: string | null; kind: string | null; difficulty: string | null; has_bounty: number; breakdown: Record<string, number>;
-  lane: string; preview: string; stars: number | null; language: string | null; rising: number; labels: string[] }
+  lane: string; preview: string; stars: number | null; language: string | null; rising: number; stars_per_day?: number | null; labels: string[] }
 export type Status = { issues: Record<string, number>; lanes: Record<string, number>; last_run: string | null; next_run: string | null;
   runs_today: number; tokens_in_today: number; tokens_out_today: number; labels: Record<string, string>; board_order: string[] }
 export type BoardCard = { id: string; repo: string; number: number; title: string; url: string; state: string; lane: string; stars: number | null; language: string | null; pr_url: string | null; label: string }

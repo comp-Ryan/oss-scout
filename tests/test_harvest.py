@@ -306,3 +306,46 @@ def test_discover_repos_get_the_discover_lane_and_lower_floor(tmp_path):
     assert repos["small/quant"][:2] == ("discover", 0) and repos["new/hot"][:2] == ("discover", 1)
     assert repos["tiny/quant"][2] == "stars<30"
     assert s.repos_discovered == 3
+
+def test_star_velocity_from_history(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    conn.execute("insert into repos(full_name, stars) values ('o/r', 1000)"); conn.commit()
+    harvest.record_stars(conn, "o/r", 1000, NOW - timedelta(days=2))
+    assert harvest.star_velocity(conn, "o/r", 1000, NOW) is None          # one point: unknown
+    harvest.record_stars(conn, "o/r", 1200, NOW)
+    assert harvest.star_velocity(conn, "o/r", 1200, NOW) == pytest.approx(100.0)  # +200 over 2 days
+    harvest.record_stars(conn, "o/r", 1200, NOW + timedelta(hours=1))      # a same-day re-check adds no noise
+    assert harvest.star_velocity(conn, "o/r", 1200, NOW + timedelta(hours=1)) == pytest.approx(200 / (49 / 24))
+
+def test_harvest_records_stars_and_flags_rising_by_velocity(tmp_path):
+    cfg = Config(languages=["Python"], good_labels=["good first issue"], category_keywords={}, bounty_labels=[], discover_topics={}, rising_stars_per_day=50)
+    q0 = harvest.build_queries(cfg, (NOW - timedelta(days=1)).date())[0]
+    q = harvest.build_queries(cfg, NOW.date())[0]
+    gh = FakeGH({q0: [_item("I1", "o/good")], q: [_item("I1", "o/good")]}, {"o/good": GOOD})
+    conn = db.connect(tmp_path / "t.db")
+    harvest.run_harvest(conn, gh, cfg, NOW - timedelta(days=1))
+    gh.signals["o/good"] = {**GOOD, "stars": 1100}
+    conn.execute("update repos set signals_fetched_at = '2026-09-01T00:00:00Z'"); conn.commit()  # force a refresh
+    harvest.run_harvest(conn, gh, cfg, NOW)
+    r = conn.execute("select stars, stars_per_day, rising from repos where full_name='o/good'").fetchone()
+    assert r["stars"] == 1100 and r["stars_per_day"] == pytest.approx(100.0) and r["rising"] == 1
+
+def test_seed_repos_feed_the_harvest_with_their_label(tmp_path):
+    cfg = Config(languages=["Python"], good_labels=["good first issue"], category_keywords={}, bounty_labels=[], discover_topics={})
+    class GH(FakeGH):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k); self.listed = []
+        def list_issues(self, owner, name, label, since, pages=2, per_page=100):
+            self.listed.append((f"{owner}/{name}", label))
+            return [_item(f"I-{name}", f"{owner}/{name}", 1)]
+    gh = GH({}, {"seed/labeled": {**GOOD, "stars": 400}, "seed/plain": {**GOOD, "stars": 90}, "seed/tiny": {**GOOD, "stars": 3}})
+    conn = db.connect(tmp_path / "t.db")
+    rows = [{"full_name": "seed/labeled", "label": "first-timers-only", "source": "seed:awesome_for_beginners"},
+            {"full_name": "seed/plain", "source": "seed:gittrend"}, {"full_name": "seed/tiny", "source": "seed:gittrend"}]
+    s = harvest.run_harvest(conn, gh, cfg, NOW, seeds_fn=lambda cfg_: rows)
+    assert ("seed/labeled", "first-timers-only") in gh.listed and ("seed/plain", None) in gh.listed
+    assert not any(r == "seed/tiny" for r, _ in gh.listed)  # under the small floor: never listed
+    got = {r["repo"]: (r["lane"]) for r in conn.execute("select repo, lane from issues")}
+    assert got == {"seed/labeled": "resume", "seed/plain": "discover"}
+    src = {r[0]: r[1] for r in conn.execute("select full_name, source from repos")}
+    assert src["seed/plain"] == "seed:gittrend" and src["seed/tiny"] == "seed:gittrend" and s.seeds == 3

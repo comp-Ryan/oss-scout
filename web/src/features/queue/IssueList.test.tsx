@@ -5,7 +5,7 @@ import * as api from '@/lib/api'
 import { row } from '@/lib/fixtures'
 import { IssueList } from './IssueList'
 
-const rows = [row(), row({ id: 'B', rank: 2, score: 8, number: 2, title: 'Web thing', category: 'web_frontend', preview: '' })]
+const rows = [row(), row({ id: 'B', rank: 2, score: 8, number: 2, title: 'Web thing', category: 'web_frontend', preview: '', stars_per_day: 120 })]
 
 test('renders rows, j/k move the selection, Enter opens the issue, a analyzes, d dismisses', async () => {
   vi.spyOn(api, 'getQueue').mockResolvedValue(rows)
@@ -14,6 +14,7 @@ test('renders rows, j/k move the selection, Enter opens the issue, a analyzes, d
   renderApp(<IssueList />)
   await waitFor(() => expect(screen.getByText(/Quant thing/)).toBeInTheDocument())
   expect(screen.getByText(/The first lines/)).toBeInTheDocument()
+  expect(screen.getByText(/\+120\/day/)).toBeInTheDocument()
   await userEvent.keyboard('j')
   expect(screen.getByRole('option', { name: /Web thing/ })).toHaveAttribute('aria-selected', 'true')
   await userEvent.keyboard('{Enter}')

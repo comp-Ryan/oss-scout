@@ -19,7 +19,7 @@ export function IssueRow({ r, selected, onSelect }: { r: QueueRow; selected: boo
       className={cn('grid cursor-pointer grid-cols-[3px_1fr_auto] gap-x-3 border-b border-line px-2 py-2.5', selected ? 'bg-raised' : 'hover:bg-surface')}>
       <span className={cn('row-span-3 w-[3px] rounded-full', CAT_COLOR[r.category ?? 'other'])} aria-hidden />
       <div className="flex items-baseline gap-2 text-[12px] text-muted">
-        <span className="mono text-ink">{r.repo}</span><span>{stars(r.stars)}★ {r.language ?? ''}{r.rising ? ', rising' : ''}</span>
+        <span className="mono text-ink">{r.repo}</span><span>{stars(r.stars)}★ {r.language ?? ''}{r.stars_per_day && r.stars_per_day >= 1 ? `, +${Math.round(r.stars_per_day)}/day` : r.rising ? ', rising' : ''}</span>
       </div>
       <Tip content={<div className="mono space-y-0.5">{Object.entries(r.breakdown).sort((a, b) => b[1] - a[1]).map(([k, v]) => <div key={k} className="flex justify-between gap-4"><span>{k}</span><span>{v.toFixed(1)}</span></div>)}</div>}>
         <span className="mono row-span-2 self-start text-[20px] font-medium leading-none text-signal">{r.score.toFixed(1)}</span>

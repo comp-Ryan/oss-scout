@@ -87,3 +87,14 @@ def test_preview_skips_code_fences_and_no_response_lines():
     body = "### Description\n_No response_\n### Repro\n```python\nimport x\nx.run()\n```\nThe stream stays open after the child exits.\n"
     p = queue_view.preview(body)
     assert p == "The stream stays open after the child exits."
+
+def test_queue_rows_carry_velocity_and_sort_rising(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    conn.execute("insert into repos(full_name, stars, stars_per_day) values ('o/slow', 5000, 1.0)")
+    conn.execute("insert into repos(full_name, stars, stars_per_day) values ('o/fast', 300, 120.0)")
+    for iid, repo in (("S", "o/slow"), ("F", "o/fast")):
+        conn.execute("insert into issues(id, repo, number, title, url, state, harvested_at, last_seen_at) values (?,?,1,'t','u','shortlisted','x','x')", (iid, repo))
+        conn.execute("insert into scores(issue_id, total, breakdown, weights_hash, scored_at) values (?,9.0,'{}','h','x')", (iid,))
+    conn.commit()
+    rows = queue_view.queue_rows(conn, None, None, 10, sort="rising")
+    assert [r["id"] for r in rows] == ["F", "S"] and rows[0]["stars_per_day"] == 120.0

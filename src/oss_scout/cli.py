@@ -203,6 +203,18 @@ def brief_command(issue):
     console.print(json.dumps(b, indent=1))
 
 
+@main.command("seeds")
+def seeds_command():
+    """Fetch (or read from the daily cache) the seed lists and show how many repos each contributes."""
+    from collections import Counter
+    from oss_scout import seeds
+    cfg = load_config(); _setup_logging(cfg)
+    rows = seeds.fetch_all(cfg, log=lambda m: console.print(f"[red]{m}"))
+    for src, n in Counter(r["source"] for r in rows).most_common():
+        console.print(f"{src}: {n}")
+    console.print(f"total unique: {len(rows)}")
+
+
 @main.command("status")
 def status_command():
     """Counts per state and the last run."""

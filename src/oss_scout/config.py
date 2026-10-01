@@ -66,6 +66,7 @@ class Config:
     discover_issues_per_repo: int = 30
     rising_days: int = 90
     rising_min_stars: int = 50
+    rising_stars_per_day: float = 20.0  # measured velocity that marks a repo rising, once we have two days of history
     discover_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_DISCOVER_WEIGHTS))
     shortlist_per_owner_cap: int = 5
     # Seed lists: sites and repos that point at other repos. Fetched once a day, cached under data/seeds.

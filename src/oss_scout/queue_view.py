@@ -9,7 +9,7 @@ PREVIEW_CHARS = 200
 
 SQL = """
 select i.id, i.repo, i.number, i.title, i.url, i.state, i.has_bounty, i.lane, i.body, i.labels, i.updated_at, i.comments,
-       r.stars, r.language, r.rising,
+       r.stars, r.language, r.rising, r.stars_per_day,
        (select total from scores s where s.issue_id = i.id order by s.id desc limit 1) as score,
        (select breakdown from scores s where s.issue_id = i.id order by s.id desc limit 1) as breakdown,
        (select choice from classifications c where c.issue_id = i.id and c.question='category' order by c.id desc limit 1) as category,
@@ -42,7 +42,7 @@ def preview(body: str | None) -> str:
 
 SCORED_STATES = ACTIVE_STATES + ("classified",)
 DIFF_RANK = {"small": 0, "medium": 1, "large": 2}
-SORTS = ("score", "easiest", "hardest", "stars", "newest")
+SORTS = ("score", "easiest", "hardest", "stars", "newest", "rising")
 
 
 def queue_rows(conn, category: str | None, state: str | None, limit: int, lane: str | None = None, *,
@@ -76,6 +76,8 @@ def queue_rows(conn, category: str | None, state: str | None, limit: int, lane: 
         rows.sort(key=lambda r: (-(r["stars"] or 0), -r["score"]))
     elif sort == "newest":
         rows.sort(key=lambda r: ((r["updated_at"] or ""), r["score"]), reverse=True)
+    elif sort == "rising":
+        rows.sort(key=lambda r: (-(r["stars_per_day"] or 0), -r["score"]))
     else:
         rows.sort(key=lambda r: -r["score"])
     out = []

@@ -25,6 +25,7 @@ class HarvestSummary:
     skipped_linked_pr: int = 0
     marked_stale: int = 0
     prs_closed: int = 0
+    seeds: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -56,6 +57,29 @@ def build_repo_queries(cfg: Config, today: date) -> list[str]:
     pushed = (today - timedelta(days=cfg.repo_idle_days)).isoformat()
     return [f"stars:>={cfg.min_stars} pushed:>={pushed} language:{lang} {qual}:>=1"
             for lang in cfg.languages for qual in cfg.repo_qualifiers]
+
+
+def record_stars(conn, full_name: str, stars: int, now: datetime) -> None:
+    """One star-count sample per repo per hour at most; the history is what velocity is computed from."""
+    at = _iso(now)
+    last = conn.execute("select at, stars from repo_star_history where full_name = ? order by at desc limit 1", (full_name,)).fetchone()
+    if last and last["at"][:13] == at[:13]:
+        return
+    with conn:
+        conn.execute("insert into repo_star_history(full_name, at, stars) values (?,?,?)", (full_name, at, stars))
+
+
+def star_velocity(conn, full_name: str, stars_now: int, now: datetime, window_days: int = 14) -> float | None:
+    """Stars per day over the oldest sample inside the window. None until there is at least one day of history."""
+    since = _iso(now - timedelta(days=window_days))
+    rows = conn.execute("select at, stars from repo_star_history where full_name = ? and at >= ? order by at asc limit 2", (full_name, since)).fetchall()
+    if len(rows) < 2:
+        return None
+    first = rows[0]
+    days = (now - _parse_ts(first["at"])).total_seconds() / 86400
+    if days < 0.5:
+        return None
+    return (stars_now - first["stars"]) / days
 
 
 def build_discover_queries(cfg: Config, today: date) -> list[tuple[str, str]]:
@@ -105,7 +129,8 @@ def detect_ai_policy(text: str | None, cfg: Config) -> str:
 
 
 def repo_exclusion_reason(repo: dict, cfg: Config, now: datetime) -> str | None:
-    floor = cfg.discover_min_stars if repo.get("source") == "discover" else cfg.min_stars
+    # Anything not found by the main search (topic discovery, seed lists) only has to clear the small floor.
+    floor = cfg.min_stars if (repo.get("source") or "search") == "search" else cfg.discover_min_stars
     if (repo.get("stars") or 0) < floor:
         return f"stars<{floor}"
     pushed = repo.get("pushed_at")
@@ -140,7 +165,7 @@ def issue_from_search_item(item: dict, cfg: Config) -> dict:
 
 REPO_COLS = ["full_name", "stars", "language", "description", "pushed_at", "org_known", "external_merge_rate",
              "median_first_response_hours", "signals_fetched_at", "contributing_text", "contributing_fetched_at",
-             "ai_policy", "excluded_reason", "source", "rising", "created_at"]
+             "ai_policy", "excluded_reason", "source", "rising", "created_at", "stars_per_day"]
 
 
 def _ensure_repo(conn, gh, full_name: str, cfg: Config, now: datetime, meta: dict | None = None) -> dict:
@@ -159,6 +184,12 @@ def _ensure_repo(conn, gh, full_name: str, cfg: Config, now: datetime, meta: dic
             "median_first_response_hours": median_first_response_hours(sig["issues"]),
             "signals_fetched_at": _iso(now),
         })
+        if row:  # the row must exist before history can reference it; new repos get their first sample after the upsert
+            record_stars(conn, full_name, sig["stars"], now)
+        v = star_velocity(conn, full_name, sig["stars"], now)
+        repo["stars_per_day"] = v
+        if v is not None and v >= cfg.rising_stars_per_day:
+            repo["rising"] = 1
     # Star and idle exclusions need no contributing text: skip that fetch for repos already out.
     cheap_reason = repo_exclusion_reason({**repo, "ai_policy": "none"}, cfg, now)
     stale_contrib = not repo.get("contributing_fetched_at") or (now - _parse_ts(repo["contributing_fetched_at"])) > timedelta(days=cfg.contributing_refresh_days)
@@ -171,6 +202,8 @@ def _ensure_repo(conn, gh, full_name: str, cfg: Config, now: datetime, meta: dic
         conn.execute(
             f"insert into repos({','.join(REPO_COLS)}) values ({','.join('?' * len(REPO_COLS))}) "
             f"on conflict(full_name) do update set {','.join(f'{c}=excluded.{c}' for c in REPO_COLS[1:])}", values)
+    if not row and repo.get("stars") is not None:
+        record_stars(conn, full_name, repo["stars"], now)
     return repo
 
 
@@ -204,6 +237,8 @@ def _prefilter_repos(conn, gh, names: list[str], cfg: Config, now: datetime, s: 
                              (full_name, repo.get("stars"), repo.get("pushed_at"), reason, _iso(now), m.get("source", "search"), int(m.get("rising") or 0), m.get("created_at")))
             excluded[full_name] = repo
             s.excluded_repos += 1
+            if repo.get("stars") is not None:
+                record_stars(conn, full_name, repo["stars"], now)
     return excluded
 
 
@@ -225,9 +260,12 @@ def close_open_prs(conn, s: HarvestSummary, shell) -> None:
             transitions.apply(conn, r["id"], "closed", "harvester", r["pr_url"]); s.prs_closed += 1
 
 
-def run_harvest(conn, gh, cfg: Config, now: datetime | None = None, shell=None) -> HarvestSummary:
+def run_harvest(conn, gh, cfg: Config, now: datetime | None = None, shell=None, seeds_fn=None) -> HarvestSummary:
     now = now or datetime.now(timezone.utc)
     s = HarvestSummary()
+    if seeds_fn is None:
+        from oss_scout import seeds as _seeds
+        seeds_fn = lambda cfg_: _seeds.fetch_all(cfg_, log=lambda m: s.errors.append(m))
     if shell is None:
         from oss_scout.agents.draft import default_shell as shell
     close_open_prs(conn, s, shell)
@@ -287,13 +325,37 @@ def run_harvest(conn, gh, cfg: Config, now: datetime | None = None, shell=None) 
                                             "created_at": repo.get("created_at"), "rising": int(bool(created and created >= rising_cutoff))})
         except Exception as e:
             s.errors.append(f"{q}: {e}")
+    # Source 4: seed lists (sites and repos that point at repos). No stars known up front: the pre-filter fetches them.
+    seed_labels: dict[str, str | None] = {}
+    try:
+        for r in seeds_fn(cfg):
+            full_name = r["full_name"]
+            if full_name in discovered or full_name in meta:
+                continue
+            meta[full_name] = {"source": r.get("source", "seed"), "stars": None, "pushed_at": None, "created_at": None, "rising": 0}
+            seed_labels[full_name] = r.get("label")
+            s.seeds += 1
+    except Exception as e:
+        s.errors.append(f"seeds: {e}")
     s.repos_discovered = len(discovered) + len(meta)
+    # Seed repos have no star count yet: one batched basics call fills it so the floor applies before any listing.
+    need = [n for n, m in meta.items() if m.get("stars") is None]
+    if need:
+        try:
+            for n, b in gh.repo_basics(need).items():
+                if b:
+                    meta[n].update({"stars": b["stars"], "pushed_at": b["pushed_at"]})
+                else:
+                    meta[n]["stars"] = 0
+        except Exception as e:
+            s.errors.append(f"seed basics: {e}")
     for full_name, m in meta.items():
         if (m.get("stars") or 0) < cfg.discover_min_stars:
             continue
         owner, name = full_name.split("/", 1)
         try:
-            for item in gh.list_issues(owner, name, None, since, pages=1, per_page=cfg.discover_issues_per_repo):
+            label = seed_labels.get(full_name)
+            for item in gh.list_issues(owner, name, label, since, pages=1, per_page=cfg.discover_issues_per_repo):
                 take(item)
         except Exception as e:
             s.errors.append(f"{full_name} [discover]: {e}")

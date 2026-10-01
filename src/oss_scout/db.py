@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 
 SCHEMA_V1 = """
 create table if not exists meta (key text primary key, value text not null);
@@ -99,9 +99,18 @@ create table if not exists drafts (
 
 # v5 adds columns; sqlite has no "add column if not exists", so migrate() applies these guarded.
 V5_COLUMNS = [("issues", "lane", "text not null default 'resume'"), ("repos", "source", "text not null default 'search'"),
-              ("repos", "rising", "integer not null default 0"), ("repos", "created_at", "text")]
+              ("repos", "rising", "integer not null default 0"), ("repos", "created_at", "text"),
+              ("repos", "stars_per_day", "real")]
 
-SCHEMA = SCHEMA_V1 + SCHEMA_V2 + SCHEMA_V3 + SCHEMA_V4
+SCHEMA_V6 = """
+create table if not exists repo_star_history (
+  full_name text not null references repos(full_name),
+  at text not null, stars integer not null
+);
+create index if not exists repo_star_history_repo on repo_star_history(full_name, at);
+"""
+
+SCHEMA = SCHEMA_V1 + SCHEMA_V2 + SCHEMA_V3 + SCHEMA_V4 + SCHEMA_V6
 
 
 def utcnow() -> str:

@@ -113,3 +113,12 @@ def test_contributing_text_tries_two_paths_and_decodes_base64():
 def test_contributing_text_none_when_absent():
     c, _, _ = make_client([_http_error(404), _http_error(404)])
     assert c.contributing_text("o", "r") is None
+
+def test_repo_basics_batches_with_aliases_and_handles_missing():
+    data = {"data": {"r0": {"nameWithOwner": "o/a", "stargazerCount": 10, "pushedAt": "p"}, "r1": None}}
+    c, calls, _ = make_client([FakeResp(data)])
+    out = c.repo_basics(["o/a", "o/gone"])
+    assert out == {"o/a": {"stars": 10, "pushed_at": "p"}, "o/gone": None}
+    body = json.loads(calls[0].data)
+    assert 'r0: repository(owner:"o", name:"a")' in body["query"]
+    assert len(calls) == 1

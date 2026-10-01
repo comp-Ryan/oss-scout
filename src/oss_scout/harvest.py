@@ -144,11 +144,37 @@ def _ensure_repo(conn, gh, full_name: str, cfg: Config, now: datetime) -> dict:
     return repo
 
 
+def _prefilter_repos(conn, gh, names: list[str], cfg: Config, now: datetime, s: HarvestSummary) -> dict[str, dict]:
+    """One cheap batch call for repos we have never seen: anything under the star floor, idle, or gone is
+    recorded as excluded without the expensive per-repo signal and contributing fetches."""
+    excluded: dict[str, dict] = {}
+    if not names:
+        return excluded
+    basics = gh.repo_basics(names)
+    for full_name in names:
+        b = basics.get(full_name)
+        if b is None:
+            reason = "not_found"
+            repo = {"full_name": full_name, "excluded_reason": reason}
+        else:
+            repo = {"full_name": full_name, "stars": b["stars"], "pushed_at": b["pushed_at"]}
+            reason = repo_exclusion_reason(repo, cfg, now)
+            repo["excluded_reason"] = reason
+        if reason:
+            with conn:
+                conn.execute("insert into repos(full_name, stars, pushed_at, excluded_reason) values (?,?,?,?) "
+                             "on conflict(full_name) do update set stars=excluded.stars, pushed_at=excluded.pushed_at, excluded_reason=excluded.excluded_reason",
+                             (full_name, repo.get("stars"), repo.get("pushed_at"), reason))
+            excluded[full_name] = repo
+            s.excluded_repos += 1
+    return excluded
+
+
 def run_harvest(conn, gh, cfg: Config, now: datetime | None = None) -> HarvestSummary:
     now = now or datetime.now(timezone.utc)
     s = HarvestSummary()
-    repo_cache: dict[str, dict] = {}
     seen_ids: set[str] = set()
+    rows: list[dict] = []
     for q in build_queries(cfg, now.date()):
         s.queries += 1
         try:
@@ -164,10 +190,20 @@ def run_harvest(conn, gh, cfg: Config, now: datetime | None = None) -> HarvestSu
                 continue
             seen_ids.add(row["id"])
             s.seen += 1
-            try:
-                _harvest_one(conn, gh, cfg, now, row, repo_cache, s)
-            except Exception as e:
-                s.errors.append(f"{row['repo']}#{row['number']}: {e}")
+            rows.append(row)
+
+    known = {r[0] for r in conn.execute("select full_name from repos")}
+    unknown = [name for name in dict.fromkeys(r["repo"] for r in rows) if name not in known]
+    try:
+        repo_cache: dict[str, dict] = _prefilter_repos(conn, gh, unknown, cfg, now, s)
+    except Exception as e:
+        s.errors.append(f"prefilter: {e}")
+        repo_cache = {}
+    for row in rows:
+        try:
+            _harvest_one(conn, gh, cfg, now, row, repo_cache, s)
+        except Exception as e:
+            s.errors.append(f"{row['repo']}#{row['number']}: {e}")
     return s
 
 

@@ -78,7 +78,8 @@ class GitHubClient:
     def graphql(self, query: str, variables: dict) -> dict:
         body = json.dumps({"query": query, "variables": variables}).encode()
         data, _ = self._request("POST", f"{API}/graphql", body)
-        if not data or data.get("errors"):
+        # A partial response (data plus NOT_FOUND errors for some aliases) is still usable.
+        if not data or data.get("data") is None:
             raise GitHubError(f"graphql: {data.get('errors') if data else 'empty response'}")
         return data["data"]
 
@@ -113,6 +114,24 @@ class GitHubClient:
             "merged_prs": r["pullRequests"]["nodes"],
             "issues": [{"createdAt": i["createdAt"], "comments": i["comments"]["nodes"]} for i in r["issues"]["nodes"]],
         }
+
+    BASICS_BATCH = 50
+
+    def repo_basics(self, names: list[str]) -> dict[str, dict | None]:
+        """Stars and push date for many repos in one call per 50. None for a repo that no longer exists."""
+        out: dict[str, dict | None] = {}
+        names = list(names)
+        for start in range(0, len(names), self.BASICS_BATCH):
+            chunk = names[start:start + self.BASICS_BATCH]
+            parts = []
+            for i, full in enumerate(chunk):
+                owner, name = full.split("/", 1)
+                parts.append(f'r{i}: repository(owner:"{owner}", name:"{name}"){{ nameWithOwner stargazerCount pushedAt }}')
+            data = self.graphql("query { " + " ".join(parts) + " }", {})
+            for i, full in enumerate(chunk):
+                r = data.get(f"r{i}")
+                out[full] = {"stars": r["stargazerCount"], "pushed_at": r["pushedAt"]} if r else None
+        return out
 
     CLOSING_PR_QUERY = """
     query($id:ID!){ node(id:$id){ ... on Issue {

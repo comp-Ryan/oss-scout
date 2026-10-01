@@ -71,6 +71,8 @@ class FakeGH:
         return self.closing.get(node_id, False)
     def contributing_text(self, owner, name):
         return self.contributing.get(f"{owner}/{name}")
+    def repo_basics(self, names):
+        return {n: ({"stars": self.signals[n]["stars"], "pushed_at": self.signals[n]["pushed_at"]} if n in self.signals else None) for n in names}
 
 def _item(node_id, repo, number=1, title="t"):
     return {"node_id": node_id, "number": number, "title": title, "body": "b", "html_url": f"https://github.com/{repo}/issues/{number}",
@@ -139,3 +141,22 @@ def test_run_harvest_skips_pull_requests_and_survives_query_errors(tmp_path):
     conn = db.connect(tmp_path / "t.db")
     s = harvest.run_harvest(conn, gh, cfg, NOW)
     assert s.new_issues == 1 and len(s.errors) == 1 and "boom" in s.errors[0]
+
+def test_run_harvest_prefilters_repos_in_batch_before_signal_calls(tmp_path):
+    cfg = _cfg()
+    q = harvest.build_queries(cfg, NOW.date())[0]
+    class GH(FakeGH):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k); self.basics_calls = []
+        def repo_basics(self, names):
+            self.basics_calls.append(list(names))
+            return {n: ({"stars": self.signals[n]["stars"], "pushed_at": self.signals[n]["pushed_at"]} if n in self.signals else None) for n in names}
+    gh = GH({q: [_item("I1", "o/good"), _item("I2", "o/small"), _item("I3", "o/gone", 3)]},
+            {"o/good": GOOD, "o/small": {**GOOD, "stars": 5}})
+    conn = db.connect(tmp_path / "t.db")
+    s = harvest.run_harvest(conn, gh, cfg, NOW)
+    assert gh.basics_calls == [["o/good", "o/small", "o/gone"]]
+    assert gh.signal_calls == 1  # only o/good got the expensive fetch
+    assert s.new_issues == 1 and s.excluded_repos == 2
+    assert conn.execute("select excluded_reason from repos where full_name='o/small'").fetchone()[0] == "stars<200"
+    assert conn.execute("select excluded_reason from repos where full_name='o/gone'").fetchone()[0] == "not_found"

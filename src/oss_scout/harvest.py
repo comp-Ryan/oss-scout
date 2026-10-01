@@ -139,8 +139,10 @@ def _ensure_repo(conn, gh, full_name: str, cfg: Config, now: datetime) -> dict:
             "median_first_response_hours": median_first_response_hours(sig["issues"]),
             "signals_fetched_at": _iso(now),
         })
+    # Star and idle exclusions need no contributing text: skip that fetch for repos already out.
+    cheap_reason = repo_exclusion_reason({**repo, "ai_policy": "none"}, cfg, now)
     stale_contrib = not repo.get("contributing_fetched_at") or (now - _parse_ts(repo["contributing_fetched_at"])) > timedelta(days=cfg.contributing_refresh_days)
-    if stale_contrib:
+    if stale_contrib and not cheap_reason:
         text = gh.contributing_text(owner, name)
         repo.update({"contributing_text": text, "contributing_fetched_at": _iso(now), "ai_policy": detect_ai_policy(text, cfg)})
     repo["excluded_reason"] = repo_exclusion_reason(repo, cfg, now)
@@ -169,10 +171,12 @@ def _prefilter_repos(conn, gh, names: list[str], cfg: Config, now: datetime, s: 
             reason = repo_exclusion_reason(repo, cfg, now)
             repo["excluded_reason"] = reason
         if reason:
+            # signals_fetched_at marks the cheap check as done so a later pass does not refetch this repo
             with conn:
-                conn.execute("insert into repos(full_name, stars, pushed_at, excluded_reason) values (?,?,?,?) "
-                             "on conflict(full_name) do update set stars=excluded.stars, pushed_at=excluded.pushed_at, excluded_reason=excluded.excluded_reason",
-                             (full_name, repo.get("stars"), repo.get("pushed_at"), reason))
+                conn.execute("insert into repos(full_name, stars, pushed_at, excluded_reason, signals_fetched_at) values (?,?,?,?,?) "
+                             "on conflict(full_name) do update set stars=excluded.stars, pushed_at=excluded.pushed_at, "
+                             "excluded_reason=excluded.excluded_reason, signals_fetched_at=excluded.signals_fetched_at",
+                             (full_name, repo.get("stars"), repo.get("pushed_at"), reason, _iso(now)))
             excluded[full_name] = repo
             s.excluded_repos += 1
     return excluded

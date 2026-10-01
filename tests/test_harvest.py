@@ -193,3 +193,34 @@ def test_run_harvest_pulls_issues_from_repo_first_source_and_dedupes(tmp_path):
     assert gh.list_calls == [("big/repo", "good first issue", "2026-09-01T00:00:00Z")]
     assert s.new_issues == 2 and s.seen == 2  # I1 seen once despite two sources; the PR is skipped
     assert {r[0] for r in conn.execute("select id from issues")} == {"I1", "I2"}
+
+def test_rerun_never_refetches_a_prefilter_excluded_repo(tmp_path):
+    cfg = _cfg()
+    q = harvest.build_queries(cfg, NOW.date())[0]
+    class GH(FakeGH):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k); self.contrib_calls = 0
+        def contributing_text(self, owner, name):
+            self.contrib_calls += 1
+            return super().contributing_text(owner, name)
+    gh = GH({q: [_item("I2", "o/small")]}, {"o/small": {**GOOD, "stars": 5}})
+    conn = db.connect(tmp_path / "t.db")
+    harvest.run_harvest(conn, gh, cfg, NOW)
+    harvest.run_harvest(conn, gh, cfg, NOW + timedelta(hours=1))
+    assert gh.signal_calls == 0 and gh.contrib_calls == 0
+    assert conn.execute("select count(*) from issues").fetchone()[0] == 0
+
+def test_ensure_repo_skips_contributing_fetch_when_already_excluded(tmp_path):
+    cfg = _cfg()
+    class GH(FakeGH):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k); self.contrib_calls = 0
+        def contributing_text(self, owner, name):
+            self.contrib_calls += 1
+            return None
+    gh = GH({}, {"o/small": {**GOOD, "stars": 5}, "o/good": GOOD})
+    conn = db.connect(tmp_path / "t.db")
+    small = harvest._ensure_repo(conn, gh, "o/small", cfg, NOW)
+    assert small["excluded_reason"] == "stars<200" and gh.contrib_calls == 0
+    good = harvest._ensure_repo(conn, gh, "o/good", cfg, NOW)
+    assert good["excluded_reason"] is None and gh.contrib_calls == 1

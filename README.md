@@ -53,6 +53,11 @@ Each term is 0 to 1, times its weight. Max total with default weights is 13.5.
 | bounty | 1 if a bounty label is present | 0.5 |
 | ai_policy | 0 normally, -0.5 if contributing docs discourage AI help | 1.0 |
 
+Issues come from two sources: GitHub issue search by label and category keyword (finds niche repos), and a
+repo-first pass that searches repositories above the star floor advertising good-first-issue or help-wanted
+counts and lists their open unassigned issues (this is what reaches the recognized repos). Repos never seen
+before are checked for stars and activity in batches of 50 before any expensive per-repo call.
+
 Repos whose contributing docs ban AI-generated PRs are excluded entirely, as are repos under the star floor,
 repos idle for 60 days, and issues that already have an open PR that would close them.
 

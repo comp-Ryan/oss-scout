@@ -91,8 +91,9 @@ class GeminiClassifier:
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(schema, f)
             schema_path = f.name
-        cmd = ["agy", "--print", "--model", self._model, "--output-format", "json", "--json-schema", schema_path,
-               "--disable-slash-commands", prompt]
+        # agy's --print takes the prompt as its own value, so it goes last with the prompt right after it.
+        cmd = ["agy", "--model", self._model, "--output-format", "json", "--json-schema", schema_path,
+               "--disable-slash-commands", "--print", prompt]
         r = self.runner(cmd, capture_output=True, text=True, timeout=self.timeout)
         if r.returncode != 0:
             raise RuntimeError(f"agy failed: {r.stderr[-500:]}")

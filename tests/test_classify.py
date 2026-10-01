@@ -88,11 +88,18 @@ def test_dropped_questions_go_to_fallback(tmp_path):
     assert fallback.calls == 1
     assert classify.latest(conn, "I1")["difficulty"]["choice"] == "large"
 
-def test_gemini_classifier_builds_agy_command_and_parses_json(tmp_path):
+def test_gemini_classifier_builds_agy_command_and_parses_real_json_shape(tmp_path):
     captured = {}
-    class R: returncode = 0; stdout = json.dumps({"kind": "docs"}); stderr = ""
+    # Recorded 2026-10-01 from `agy --output-format json --json-schema ... --print ...`
+    real = {"conversation_id": "a18", "status": "SUCCESS", "response": "docs\n{\"kind\":\"docs\"}\n",
+            "structured_output": {"kind": "docs"}, "usage": {"input_tokens": 27194}}
+    class R: returncode = 0; stdout = json.dumps(real); stderr = ""
     def runner(cmd, **kw): captured["cmd"] = cmd; return R()
     g = classify.GeminiClassifier("gemini-3.8-flash-medium", runner=runner)
     out = g.classify("state", {"kind": classify.QUESTIONS["kind"]})
     assert out["kind"]["choice"] == "docs" and out["kind"]["confidence"] is None
-    assert captured["cmd"][0] == "agy" and "--print" in captured["cmd"] and "--json-schema" in captured["cmd"]
+    cmd = captured["cmd"]
+    assert cmd[0] == "agy" and "--json-schema" in cmd
+    # agy's --print consumes the next argument as the prompt, so the prompt must follow it directly
+    assert cmd[cmd.index("--print") + 1].startswith("Classify this GitHub issue")
+    assert cmd[cmd.index("--model") + 1] == "gemini-3.8-flash-medium"

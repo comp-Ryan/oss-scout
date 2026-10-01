@@ -22,3 +22,10 @@ def test_systemd_unit_puts_local_bin_on_path():
     from pathlib import Path
     unit = (Path(__file__).resolve().parents[1] / "systemd" / "oss-scout-run.service").read_text()
     assert "Environment=PATH=/home/ryan/.local/bin:" in unit
+
+def test_update_yaml_merges_section_and_keeps_other_keys(tmp_path):
+    from oss_scout.config import update_yaml, load_config
+    p = tmp_path / "scout.yaml"; p.write_text("min_stars: 50\nweights:\n  bounty: 2.0\n")
+    update_yaml(p, "weights", {"bounty": 1.0, "freshness": 3.0})
+    cfg = load_config(p)
+    assert cfg.min_stars == 50 and cfg.weights["bounty"] == 1.0 and cfg.weights["freshness"] == 3.0

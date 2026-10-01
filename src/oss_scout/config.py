@@ -117,3 +117,13 @@ def jev_api_key() -> str:
     if not key:
         raise RuntimeError("jev_model_api_key not set; copy .env.example to .env")
     return key
+
+
+def update_yaml(path: Path, section: str, values: dict) -> None:
+    """Merge values into one top-level section of scout.yaml, leaving every other key as it was."""
+    text = Path(path).read_text() if Path(path).exists() else ""
+    raw = (yaml.safe_load(text) if text.strip() else {}) or {}
+    merged = dict(raw.get(section) or {})
+    merged.update(values)
+    raw[section] = merged
+    Path(path).write_text(yaml.safe_dump(raw, sort_keys=False))

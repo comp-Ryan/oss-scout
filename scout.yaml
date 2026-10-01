@@ -1,0 +1,24 @@
+# OSS Scout config. Any key here overrides the default in src/oss_scout/config.py.
+min_stars: 200
+languages: [Python, TypeScript]
+shortlist_count: 20
+shortlist_floor: 4.0
+weights:
+  recognition: 3.0
+  mergeability: 3.0
+  language_fit: 2.0
+  category: 2.0
+  difficulty_fit: 1.5
+  freshness: 1.0
+  bounty: 0.5
+  ai_policy: 1.0
+category_values:
+  quant_trading: 1.0
+  prediction_markets_finance: 1.0
+  ai_agents_llm: 1.0
+  data_scraping: 0.7
+  dev_tools_cli: 0.7
+  web_frontend: 0.8
+  other: 0.3
+# Questions dropped by `scout validate-classifier` go here, e.g. [difficulty]
+dropped_questions: []

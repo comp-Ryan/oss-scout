@@ -84,3 +84,15 @@ Logs: `data/scout.log`. Database: `data/scout.db` (SQLite). Jev responses are ca
 ## Tests
 
 `uv run pytest`. No test touches the network or a real database.
+
+## Known issues (2026-10-01, first live run)
+
+- The score does not yet see closed PRs. Issue langchain-ai/langchain#40592 ranked third with seven closed
+  PRs against it, which usually means a contested or harder-than-it-looks issue. Stage 2's brief reports
+  `duplicate_risk` from the related PRs; a "closed attempts" penalty in the score is a candidate tweak.
+- Keyword queries let in non-Python/TypeScript repos (Rust, C++, docs-only). They score low on language fit
+  but still cost classification calls. A language allowlist on keyword hits is a candidate tweak.
+- Every hourly run re-checks each known open issue for a closing PR (one GraphQL call per issue). At ~1,000
+  issues that is most of the run's calls. Checking only issues whose `updated_at` changed would cut it.
+- The 60 labels in `fixtures/labeled_issues.json` are Claude's, not Ryan's. Re-run `scout validate-classifier`
+  after reviewing them.

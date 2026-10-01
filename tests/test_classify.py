@@ -6,9 +6,9 @@ from oss_scout.config import Config
 
 FIX = json.loads((Path(__file__).parent / "fixtures" / "jev_pandas_response.json").read_text())
 
-def test_questions_have_seven_categories_and_four_names():
+def test_questions_have_all_categories_and_four_names():
     assert set(classify.QUESTIONS) == {"category", "kind", "difficulty", "worth_a_look"}
-    assert len(classify.QUESTIONS["category"]["criteria"]) == 7
+    assert len(classify.QUESTIONS["category"]["criteria"]) == 17
 
 def test_issue_state_text_truncates_body_and_handles_none():
     issue = {"repo": "o/r", "title": "T", "labels": "[\"bug\"]", "body": None, "comments": 3}
@@ -103,3 +103,18 @@ def test_gemini_classifier_builds_agy_command_and_parses_real_json_shape(tmp_pat
     # agy's --print consumes the next argument as the prompt, so the prompt must follow it directly
     assert cmd[cmd.index("--print") + 1].startswith("Classify this GitHub issue")
     assert cmd[cmd.index("--model") + 1] == "gemini-3.8-flash-medium"
+
+def test_category_set_covers_ryans_interests():
+    cats = set(classify.CATEGORIES)
+    for c in ("backend_api", "iot_embedded", "devops_cloud", "security", "logic_formal_methods", "philosophy_religion",
+              "ml_data_science", "math_competitive", "science_simulation", "knowledge_reading", "other"):
+        assert c in cats
+    assert len(classify.QUESTIONS["category"]["criteria"]) == len(cats)
+
+def test_run_reclassify_asks_one_question_for_classified_issues(tmp_path):
+    conn = db.connect(tmp_path / "t.db"); _seed(conn, "I1", state="shortlisted"); _seed(conn, "I2", state="harvested")
+    conn.execute("insert into classifications(issue_id, question, choice, confidence, probabilities, model, asked_at) values ('I1','category','other',0.5,'{}','old','x')"); conn.commit()
+    clf = StubClassifier({"category": {"choice": "iot_embedded", "confidence": 0.9, "probabilities": {}}})
+    n = classify.run_reclassify(conn, Config(), clf, "category")
+    assert n == 1 and clf.calls == 1  # the harvested one is left for the normal pass
+    assert classify.latest(conn, "I1")["category"]["choice"] == "iot_embedded"

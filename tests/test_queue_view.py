@@ -58,3 +58,27 @@ More detail here."""
 def test_preview_falls_back_to_plain_text_when_nothing_else():
     assert queue_view.preview("- [x] done\n### Only headings") == ""
     assert queue_view.preview("Plain sentence. " * 30).endswith("…")
+
+def _seed_sorted(conn):
+    conn.execute("insert or ignore into repos(full_name, stars, language) values ('o/r', 100, 'Python')")
+    conn.execute("insert or ignore into repos(full_name, stars, language) values ('o/big', 9000, 'Python')")
+    rows = [("A", "o/r", "small", 5.0, "2026-09-01T00:00:00Z", "shortlisted"), ("B", "o/big", "large", 9.0, "2026-09-30T00:00:00Z", "classified"),
+            ("C", "o/r", "medium", 7.0, "2026-09-15T00:00:00Z", "classified")]
+    for iid, repo, diff, total, upd, state in rows:
+        conn.execute("insert into issues(id, repo, number, title, url, state, updated_at, harvested_at, last_seen_at) values (?,?,1,'t','u',?,?,'x','x')", (iid, repo, state, upd))
+        conn.execute("insert into classifications(issue_id, question, choice, confidence, probabilities, model, asked_at) values (?,'difficulty',?,0.9,'{}','s','x')", (iid, diff))
+        conn.execute("insert into scores(issue_id, total, breakdown, weights_hash, scored_at) values (?,?,'{}','h','x')", (iid, total))
+    conn.commit()
+
+def test_queue_all_scored_sort_and_difficulty_and_offset(tmp_path):
+    conn = db.connect(tmp_path / "t.db"); _seed_sorted(conn)
+    assert [r["id"] for r in queue_view.queue_rows(conn, None, None, 10)] == ["A"]  # default: active states only
+    allrows = queue_view.queue_rows(conn, None, None, 10, all_scored=True)
+    assert [r["id"] for r in allrows] == ["B", "C", "A"]
+    assert [r["id"] for r in queue_view.queue_rows(conn, None, None, 10, all_scored=True, sort="easiest")] == ["A", "C", "B"]
+    assert [r["id"] for r in queue_view.queue_rows(conn, None, None, 10, all_scored=True, sort="hardest")] == ["B", "C", "A"]
+    assert [r["id"] for r in queue_view.queue_rows(conn, None, None, 10, all_scored=True, sort="stars")][0] == "B"
+    assert [r["id"] for r in queue_view.queue_rows(conn, None, None, 10, all_scored=True, sort="newest")][0] == "B"
+    assert [r["id"] for r in queue_view.queue_rows(conn, None, None, 10, all_scored=True, difficulty="medium")] == ["C"]
+    page2 = queue_view.queue_rows(conn, None, None, 2, all_scored=True, offset=2)
+    assert [r["id"] for r in page2] == ["A"] and page2[0]["rank"] == 3

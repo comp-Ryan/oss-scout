@@ -97,6 +97,18 @@ def classify_command(limit):
     _do_classify(cfg, db.connect(cfg.db_path), limit)
 
 
+@main.command("reclassify")
+@click.option("--question", default="category", help="which of the four questions to re-ask")
+@click.option("--limit", type=int, default=None)
+def reclassify_command(question, limit):
+    """Re-ask one question for every classified issue (after changing the category set)."""
+    cfg = load_config(); _setup_logging(cfg)
+    primary, _ = _classifiers(cfg)
+    n = classify.run_reclassify(db.connect(cfg.db_path), cfg, primary, question, limit)
+    logging.info("reclassify %s: %d", question, n)
+    console.print(f"reclassified {question} for {n} issues")
+
+
 @main.command("score")
 def score_command():
     """Score classified issues and refresh the shortlist."""

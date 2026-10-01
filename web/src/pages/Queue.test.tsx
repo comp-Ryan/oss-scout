@@ -37,5 +37,28 @@ test('lane switch asks for the discover lane; analyze button starts a run', asyn
 test('empty queue shows an empty-state line', async () => {
   vi.spyOn(api, 'getQueue').mockResolvedValue([])
   render(<MemoryRouter><Queue /></MemoryRouter>)
-  await waitFor(() => expect(screen.getByText(/nothing shortlisted yet/i)).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByText(/nothing shortlisted here yet/i)).toBeInTheDocument())
+})
+
+test('difficulty chips, sort control and show-all toggle reach the API', async () => {
+  const spy = vi.spyOn(api, 'getQueue').mockResolvedValue(rows)
+  render(<MemoryRouter><Queue /></MemoryRouter>)
+  await waitFor(() => expect(screen.getByText(/Quant thing/)).toBeInTheDocument())
+  await userEvent.click(screen.getByRole('button', { name: 'small' }))
+  await waitFor(() => expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ difficulty: 'small' })))
+  await userEvent.selectOptions(screen.getByLabelText(/sort/i), 'easiest')
+  await waitFor(() => expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'easiest' })))
+  await userEvent.click(screen.getByRole('button', { name: /everything classified/i }))
+  await waitFor(() => expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ all: true })))
+})
+
+test('load more appends the next page', async () => {
+  const many = Array.from({ length: 60 }, (_, i) => ({ ...rows[0], id: `R${i}`, rank: i + 1, number: i + 1, title: `Issue ${i + 1}` }))
+  const spy = vi.spyOn(api, 'getQueue').mockResolvedValueOnce(many).mockResolvedValueOnce([{ ...rows[1], id: 'X', rank: 61, number: 61, title: 'Issue 61' }])
+  render(<MemoryRouter><Queue /></MemoryRouter>)
+  await waitFor(() => expect(screen.getByText(/Issue 60/)).toBeInTheDocument())
+  await userEvent.click(screen.getByRole('button', { name: /load more/i }))
+  await waitFor(() => expect(screen.getByText(/Issue 61/)).toBeInTheDocument())
+  expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 60 }))
+  expect(screen.getByText(/Issue 60/)).toBeInTheDocument()
 })

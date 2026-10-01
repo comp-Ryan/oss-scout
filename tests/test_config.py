@@ -5,7 +5,7 @@ def test_defaults_without_file(tmp_path):
     cfg = load_config(tmp_path / "missing.yaml")
     assert isinstance(cfg, Config)
     assert cfg.min_stars == 200
-    assert cfg.shortlist_count == 20
+    assert cfg.shortlist_count == 60
     assert cfg.shortlist_floor == 4.0
     assert "Python" in cfg.languages
     assert cfg.weights["recognition"] == 3.0

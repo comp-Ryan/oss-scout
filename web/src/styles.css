@@ -86,3 +86,11 @@ pre.body { white-space: pre-wrap; background: var(--panel); padding: 10px; borde
 .runlist div { padding: 7px 8px; border-bottom: 1px solid var(--line); cursor: pointer; } .runlist div.sel { background: var(--panel); }
 .events { font-family: var(--mono); font-size: 12px; max-height: 70vh; overflow: auto; background: var(--panel); border-radius: 8px; padding: 8px; }
 .events div { padding: 2px 0; border-bottom: 1px dashed var(--line); white-space: pre-wrap; word-break: break-word; }
+
+.chips.tools { align-items: center; }
+.sort { color: var(--mute); font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+.sort select { font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; }
+.actions.center { justify-content: center; margin-top: 14px; }
+.cat-ml_data_science, .cat-math_competitive { border-left-color: var(--blue); } .cat-backend_api, .cat-devops_cloud { border-left-color: var(--green); }
+.cat-security { border-left-color: var(--bad); } .cat-iot_embedded, .cat-science_simulation { border-left-color: #f08a4b; }
+.cat-logic_formal_methods, .cat-philosophy_religion, .cat-knowledge_reading { border-left-color: var(--violet); }

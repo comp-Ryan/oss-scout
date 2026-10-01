@@ -12,17 +12,29 @@ DEFAULT_WEIGHTS = {
     "difficulty_fit": 1.5, "freshness": 1.0, "bounty": 0.5, "ai_policy": 1.0,
 }
 DEFAULT_CATEGORY_VALUES = {
-    "quant_trading": 1.0, "prediction_markets_finance": 1.0, "ai_agents_llm": 1.0,
-    "data_scraping": 0.7, "dev_tools_cli": 0.7, "web_frontend": 0.8, "other": 0.3,
+    "quant_trading": 1.0, "prediction_markets_finance": 1.0, "ai_agents_llm": 1.0, "ml_data_science": 0.9,
+    "data_scraping": 0.7, "backend_api": 0.8, "web_frontend": 0.8, "dev_tools_cli": 0.7, "devops_cloud": 0.8,
+    "security": 0.8, "iot_embedded": 0.9, "logic_formal_methods": 0.9, "philosophy_religion": 0.9,
+    "math_competitive": 0.8, "science_simulation": 0.7, "knowledge_reading": 0.8, "other": 0.3,
 }
 DEFAULT_LANGUAGE_FIT = {"Python": 1.0, "TypeScript": 0.8, "JavaScript": 0.5}
 DEFAULT_DISCOVER_TOPICS = {
     "quant_trading": ["backtesting", "trading-bot", "algorithmic-trading", "quant", "quantitative-finance"],
     "prediction_markets_finance": ["polymarket", "prediction-markets", "kalshi", "sports-betting"],
     "ai_agents_llm": ["mcp-server", "llm-agents", "ai-agents", "agentic-ai", "model-context-protocol"],
+    "ml_data_science": ["pytorch", "deep-learning", "machine-learning"],
     "data_scraping": ["web-scraping", "dataframe", "etl"],
-    "dev_tools_cli": ["developer-tools", "cli-tool"],
+    "backend_api": ["fastapi", "django", "graphql", "postgresql"],
     "web_frontend": ["react-components", "design-system"],
+    "dev_tools_cli": ["developer-tools", "cli-tool"],
+    "devops_cloud": ["kubernetes", "terraform", "docker", "observability"],
+    "security": ["security-tools", "cryptography", "authentication"],
+    "iot_embedded": ["esp32", "arduino", "home-assistant", "micropython", "raspberry-pi", "robotics", "ros2", "3d-printing"],
+    "logic_formal_methods": ["lean4", "coq", "theorem-proving", "smt", "formal-verification", "logic"],
+    "philosophy_religion": ["bible", "theology", "philosophy", "digital-humanities", "scripture"],
+    "math_competitive": ["mathematics", "competitive-programming", "computer-algebra"],
+    "science_simulation": ["physics-simulation", "astronomy", "cosmology", "computational-chemistry"],
+    "knowledge_reading": ["obsidian-plugin", "note-taking", "knowledge-management", "spaced-repetition", "ebook"],
 }
 DEFAULT_DISCOVER_WEIGHTS = {
     "recognition": 0.0, "mergeability": 3.0, "language_fit": 2.0, "category": 3.0,
@@ -32,6 +44,10 @@ DEFAULT_CATEGORY_KEYWORDS = {
     "quant_trading": ["backtest", "backtesting", "trading bot", "algorithmic trading"],
     "prediction_markets_finance": ["polymarket", "kalshi", "prediction market"],
     "ai_agents_llm": ["mcp server", "llm agent", "langchain", "tool calling"],
+    "iot_embedded": ["esp32", "home assistant integration", "micropython"],
+    "logic_formal_methods": ["theorem prover", "proof assistant", "smt solver"],
+    "philosophy_religion": ["bible app", "scripture", "theology"],
+    "knowledge_reading": ["obsidian plugin", "spaced repetition"],
 }
 
 
@@ -78,7 +94,7 @@ class Config:
     weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
     category_values: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_CATEGORY_VALUES))
     language_fit: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LANGUAGE_FIT))
-    shortlist_count: int = 20
+    shortlist_count: int = 60
     shortlist_floor: float = 4.0
     shortlist_per_repo_cap: int = 3  # keeps one big repo from filling the whole shortlist
     dismiss_confidence: float = 0.9

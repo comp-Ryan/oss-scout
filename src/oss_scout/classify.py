@@ -12,10 +12,20 @@ from oss_scout.jev_client import JevClient
 CATEGORIES = {
     "quant_trading": "Backtesting, trading bots, market data, technical analysis, portfolio tools",
     "prediction_markets_finance": "Prediction markets, betting exchanges, broker or finance APIs, payments",
-    "ai_agents_llm": "LLM agents, MCP servers, prompt tooling, model evals, inference",
-    "data_scraping": "Data processing libraries, dataframes, scrapers, ETL, databases",
-    "dev_tools_cli": "Developer tools, CLIs, build systems, linters, editors",
+    "ai_agents_llm": "LLM agents, MCP servers, prompt tooling, model evals, inference serving",
+    "ml_data_science": "Machine learning and deep learning frameworks, training, datasets, notebooks, scientific Python",
+    "data_scraping": "Data processing libraries, dataframes, scrapers, ETL",
+    "backend_api": "Web backends, REST or GraphQL APIs, ORMs, databases, auth, message queues",
     "web_frontend": "React, UI components, web frontends, design systems",
+    "dev_tools_cli": "Developer tools, CLIs, build systems, linters, editors, package managers",
+    "devops_cloud": "CI/CD, containers, Kubernetes, infrastructure as code, cloud SDKs, observability",
+    "security": "Security tooling, scanners, cryptography libraries, secrets management, hardening",
+    "iot_embedded": "Microcontrollers, firmware, home automation, robotics, hardware, sensors, 3D printing",
+    "logic_formal_methods": "Proof assistants, theorem provers, SAT/SMT solvers, type theory, formal verification, logic teaching tools",
+    "philosophy_religion": "Philosophy, theology, scripture and classical text tools, digital humanities, Bible or Aquinas apps, comparative religion data",
+    "math_competitive": "Mathematics libraries, computer algebra, competitive programming judges, problem sets, puzzle solvers",
+    "science_simulation": "Physics, astronomy, cosmology, chemistry, biology simulations and scientific instruments",
+    "knowledge_reading": "Note taking, personal knowledge management, reading and e-book tools, Obsidian or Zotero plugins, spaced repetition",
     "other": "None of the above",
 }
 QUESTIONS = {
@@ -115,6 +125,27 @@ def _extract_json(text: str) -> dict:
             inner = data[key]
             data = json.loads(inner) if isinstance(inner, str) else inner
     return data
+
+
+def run_reclassify(conn, cfg: Config, classifier: Classifier, question: str, limit: int | None = None) -> int:
+    """Re-ask one question for every already-classified issue (used when the category set changes). Latest row wins."""
+    if question not in QUESTIONS:
+        raise ValueError(f"unknown question {question}")
+    sql = ("select i.*, r.stars, r.language, r.description from issues i join repos r on r.full_name = i.repo "
+           "where i.state not in ('harvested', 'dismissed', 'stale') order by i.id")
+    rows = conn.execute(sql + (f" limit {int(limit)}" if limit else "")).fetchall()
+    n = 0
+    for row in rows:
+        issue = dict(row)
+        try:
+            answers = classifier.classify(issue_state_text(issue, issue), {question: QUESTIONS[question]})
+        except Exception:
+            continue
+        if answers[question]["choice"] is None:
+            continue
+        _store(conn, issue["id"], answers, classifier.model)
+        n += 1
+    return n
 
 
 @dataclass

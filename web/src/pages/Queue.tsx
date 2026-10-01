@@ -6,17 +6,26 @@ import { ScoreBadge } from '../components/ScoreBadge'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { CATEGORIES, catLabel, label, stars } from '../labels'
 
-const STATES = ['shortlisted', 'analyzed', 'discussing', 'plan_approved', 'pr_open', 'in_review', 'classified', 'dismissed']  // drafting shares the 'working on' label with discussing
+const STATES = ['shortlisted', 'analyzed', 'discussing', 'plan_approved', 'pr_open', 'in_review', 'dismissed']  // drafting shares the 'working on' label with discussing
+const DIFFS = ['small', 'medium', 'large']
+const SORTS: [string, string][] = [['score', 'best score'], ['easiest', 'easiest first'], ['hardest', 'hardest first'], ['stars', 'most stars'], ['newest', 'newest activity']]
+const PAGE = 60
 
 export function Queue() {
   const [rows, setRows] = useState<QueueRow[] | null>(null)
   const [category, setCategory] = useState('')
   const [state, setState] = useState('')
   const [lane, setLane] = useState<'resume' | 'discover'>('resume')
+  const [difficulty, setDifficulty] = useState('')
+  const [sort, setSort] = useState('score')
+  const [all, setAll] = useState(false)
+  const [more, setMore] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const load = () => api.getQueue({ category: category || undefined, state: state || undefined, lane, limit: 100 }).then(setRows).catch(e => setError(String(e)))
-  useEffect(() => { setError(null); load() }, [category, state, lane])
+  const params = (offset: number) => ({ category: category || undefined, state: state || undefined, lane, difficulty: difficulty || undefined, sort, all, limit: PAGE, offset })
+  const load = () => api.getQueue(params(0)).then(r => { setRows(r); setMore(r.length >= PAGE) }).catch(e => setError(String(e)))
+  const loadMore = () => api.getQueue(params(rows?.length ?? 0)).then(r => { setRows(x => [...(x ?? []), ...r]); setMore(r.length >= PAGE) }).catch(e => setError(String(e)))
+  useEffect(() => { setError(null); load() }, [category, state, lane, difficulty, sort, all])
   const chip = (text: string, active: boolean, onClick: () => void) => (
     <button key={text} className={active ? 'chip on' : 'chip'} onClick={onClick}>{text}</button>
   )
@@ -39,10 +48,16 @@ export function Queue() {
         {chip('active', state === '', () => setState(''))}
         {STATES.map(s => chip(label(s), state === s, () => setState(state === s ? '' : s)))}
       </div>
+      <div className="chips tools">
+        {chip('any difficulty', difficulty === '', () => setDifficulty(''))}
+        {DIFFS.map(d => chip(d, difficulty === d, () => setDifficulty(difficulty === d ? '' : d)))}
+        <label className="sort">sort <select aria-label="sort" value={sort} onChange={e => setSort(e.target.value)}>{SORTS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>
+        {chip(all ? 'show top picks only' : 'show everything classified', all, () => setAll(a => !a))}
+      </div>
       {error && <p className="error">{error}</p>}
       {notice && <p className="notice">{notice}</p>}
       {rows && rows.length === 0 && (
-        <p className="empty">Nothing shortlisted yet in this lane. The hourly run fills it; <code>scout run</code> does it now.</p>
+        <p className="empty">{all ? 'Nothing matches these filters.' : 'Nothing shortlisted here yet. Try "everything classified" to read past the top picks, or wait for the hourly run.'}</p>
       )}
       {rows && rows.length > 0 && (
         <ol className="cards">
@@ -74,6 +89,7 @@ export function Queue() {
           ))}
         </ol>
       )}
+      {rows && rows.length > 0 && more && <div className="actions center"><button className="quiet" onClick={loadMore}>Load more</button></div>}
     </div>
   )
 }

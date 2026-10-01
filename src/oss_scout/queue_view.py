@@ -38,11 +38,19 @@ def preview(body: str | None) -> str:
     return out[:PREVIEW_CHARS] + ("…" if len(out) > PREVIEW_CHARS else "")
 
 
-def queue_rows(conn, category: str | None, state: str | None, limit: int, lane: str | None = None) -> list[dict]:
+SCORED_STATES = ACTIVE_STATES + ("classified",)
+DIFF_RANK = {"small": 0, "medium": 1, "large": 2}
+SORTS = ("score", "easiest", "hardest", "stars", "newest")
+
+
+def queue_rows(conn, category: str | None, state: str | None, limit: int, lane: str | None = None, *,
+               difficulty: str | None = None, sort: str = "score", offset: int = 0, all_scored: bool = False) -> list[dict]:
+    """Ranked rows. all_scored widens from the shortlist to every classified issue, so there is always more to read."""
     if state:
         sql, params = SQL + " where i.state = ?", [state]
     else:
-        sql, params = SQL + f" where i.state in ({','.join('?' * len(ACTIVE_STATES))})", list(ACTIVE_STATES)
+        states = SCORED_STATES if all_scored else ACTIVE_STATES
+        sql, params = SQL + f" where i.state in ({','.join('?' * len(states))})", list(states)
     if lane:
         sql += " and i.lane = ?"
         params.append(lane)
@@ -55,10 +63,21 @@ def queue_rows(conn, category: str | None, state: str | None, limit: int, lane: 
             r["labels"] = []
     if category:
         rows = [r for r in rows if r["category"] == category]
+    if difficulty:
+        rows = [r for r in rows if r["difficulty"] == difficulty]
     rows = [r for r in rows if r["score"] is not None]
-    rows.sort(key=lambda r: -r["score"])
+    if sort == "easiest":
+        rows.sort(key=lambda r: (DIFF_RANK.get(r["difficulty"], 9), -r["score"]))
+    elif sort == "hardest":
+        rows.sort(key=lambda r: (-DIFF_RANK.get(r["difficulty"], -1), -r["score"]))
+    elif sort == "stars":
+        rows.sort(key=lambda r: (-(r["stars"] or 0), -r["score"]))
+    elif sort == "newest":
+        rows.sort(key=lambda r: ((r["updated_at"] or ""), r["score"]), reverse=True)
+    else:
+        rows.sort(key=lambda r: -r["score"])
     out = []
-    for i, r in enumerate(rows[:limit], 1):
+    for i, r in enumerate(rows[offset:offset + limit], offset + 1):
         r["rank"] = i
         r["breakdown"] = json.loads(r["breakdown"] or "{}")
         out.append(r)

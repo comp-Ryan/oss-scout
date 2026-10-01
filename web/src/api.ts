@@ -9,7 +9,7 @@ const qs = (p: Record<string, string | number | undefined>) =>
   Object.entries(p).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&')
 
 export const getStatus = () => call<Status>('/api/status')
-export const getQueue = (p: { category?: string; state?: string; limit?: number; lane?: string }) => call<QueueRow[]>(`/api/queue?${qs(p)}`)
+export const getQueue = (p: { category?: string; state?: string; limit?: number; lane?: string; difficulty?: string; sort?: string; offset?: number; all?: boolean }) => call<QueueRow[]>(`/api/queue?${qs({ ...p, all: p.all ? 'true' : undefined })}`)
 export const getIssue = (id: string) => call<IssueDetail>(`/api/issues/${id}`)
 export const postDismiss = (id: string, note: string) => call<any>(`/api/issues/${id}/dismiss`, { method: 'POST', body: JSON.stringify({ note }) })
 export const postDiscuss = (id: string) => call<any>(`/api/issues/${id}/discuss`, { method: 'POST' })

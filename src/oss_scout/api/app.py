@@ -108,8 +108,11 @@ def create_app(cfg: Config, *, chat_runner=subprocess.run, gh_factory=None, conf
                 "labels": LABELS, "board_order": BOARD_ORDER}
 
     @app.get("/api/queue")
-    def queue(category: str | None = None, state: str | None = None, limit: int = 50, lane: str | None = None):
-        return queue_view.queue_rows(conn(), category, state, limit, lane)
+    def queue(category: str | None = None, state: str | None = None, limit: int = 50, lane: str | None = None,
+              difficulty: str | None = None, sort: str = "score", offset: int = 0, all: bool = False):
+        if sort not in queue_view.SORTS:
+            raise HTTPException(422, f"sort must be one of {queue_view.SORTS}")
+        return queue_view.queue_rows(conn(), category, state, limit, lane, difficulty=difficulty, sort=sort, offset=offset, all_scored=all)
 
     @app.post("/api/issues/{issue_id}/analyze")
     def analyze(issue_id: str):

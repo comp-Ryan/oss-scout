@@ -176,3 +176,11 @@ def test_board_and_move(tmp_path):
     assert c.post("/api/issues/I1/move", json={"column": "Picked"}).status_code == 409
     assert c.post("/api/issues/I1/move", json={"column": "Nope"}).status_code == 422
     assert c.get("/api/board").json()["columns"][4]["cards"][0]["id"] == "I1"
+
+def test_queue_api_passes_sort_difficulty_all_and_offset(tmp_path):
+    cfg = Config(data_dir=tmp_path); _seed(cfg, state="classified")
+    c = TestClient(create_app(cfg, chat_runner=lambda cmd, **kw: OK(), web_dist=tmp_path / "nodist"))
+    assert c.get("/api/queue").json() == []
+    assert c.get("/api/queue", params={"all": "true", "sort": "easiest", "difficulty": "small"}).json()[0]["id"] == "I1"
+    assert c.get("/api/queue", params={"all": "true", "difficulty": "large"}).json() == []
+    assert c.get("/api/queue", params={"all": "true", "offset": 1}).json() == []

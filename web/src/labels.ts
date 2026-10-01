@@ -4,8 +4,10 @@ export const STATE_LABEL: Record<string, string> = {
   closed: 'closed', dismissed: 'dismissed', stale: 'taken',
 }
 export const CATEGORY_LABEL: Record<string, string> = {
-  quant_trading: 'quant trading', prediction_markets_finance: 'prediction markets', ai_agents_llm: 'AI agents',
-  data_scraping: 'data tools', dev_tools_cli: 'dev tools', web_frontend: 'web frontend', other: 'other',
+  quant_trading: 'quant trading', prediction_markets_finance: 'prediction markets', ai_agents_llm: 'AI agents', ml_data_science: 'ML and data science',
+  data_scraping: 'data tools', backend_api: 'backend and APIs', web_frontend: 'web frontend', dev_tools_cli: 'dev tools', devops_cloud: 'DevOps and cloud',
+  security: 'security', iot_embedded: 'IoT and embedded', logic_formal_methods: 'logic and formal methods', philosophy_religion: 'philosophy and religion',
+  math_competitive: 'math and competitive', science_simulation: 'science', knowledge_reading: 'reading and knowledge', other: 'other',
 }
 export const CATEGORIES = Object.keys(CATEGORY_LABEL)
 export const label = (s: string | null | undefined) => (s ? STATE_LABEL[s] ?? s.replace(/_/g, ' ') : '')

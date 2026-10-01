@@ -16,6 +16,18 @@ DEFAULT_CATEGORY_VALUES = {
     "data_scraping": 0.7, "dev_tools_cli": 0.7, "web_frontend": 0.8, "other": 0.3,
 }
 DEFAULT_LANGUAGE_FIT = {"Python": 1.0, "TypeScript": 0.8, "JavaScript": 0.5}
+DEFAULT_DISCOVER_TOPICS = {
+    "quant_trading": ["backtesting", "trading-bot", "algorithmic-trading", "quant", "quantitative-finance"],
+    "prediction_markets_finance": ["polymarket", "prediction-markets", "kalshi", "sports-betting"],
+    "ai_agents_llm": ["mcp-server", "llm-agents", "ai-agents", "agentic-ai", "model-context-protocol"],
+    "data_scraping": ["web-scraping", "dataframe", "etl"],
+    "dev_tools_cli": ["developer-tools", "cli-tool"],
+    "web_frontend": ["react-components", "design-system"],
+}
+DEFAULT_DISCOVER_WEIGHTS = {
+    "recognition": 0.0, "mergeability": 3.0, "language_fit": 2.0, "category": 3.0,
+    "difficulty_fit": 1.5, "freshness": 2.0, "bounty": 0.5, "ai_policy": 1.0, "rising": 2.0,
+}
 DEFAULT_CATEGORY_KEYWORDS = {
     "quant_trading": ["backtest", "backtesting", "trading bot", "algorithmic trading"],
     "prediction_markets_finance": ["polymarket", "kalshi", "prediction market"],
@@ -31,6 +43,15 @@ class Config:
     pages_per_query: int = 3
     per_page: int = 100
     repo_pages_per_query: int = 1
+    # Discover lane: smaller and rising repos found by topic, kept apart from the resume-first ranking.
+    discover_min_stars: int = 30
+    discover_topics: dict[str, list[str]] = field(default_factory=lambda: {k: list(v) for k, v in DEFAULT_DISCOVER_TOPICS.items()})
+    discover_pages_per_query: int = 1
+    discover_issues_per_repo: int = 30
+    rising_days: int = 90
+    rising_min_stars: int = 50
+    discover_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_DISCOVER_WEIGHTS))
+    shortlist_per_owner_cap: int = 5
     github_min_interval: float = 0.25  # seconds between GitHub requests; stays under the secondary rate limit
     github_search_min_interval: float = 2.1  # search bucket is 30/min and trips a secondary limit when burst
     repo_qualifiers: list[str] = field(default_factory=lambda: ["good-first-issues", "help-wanted-issues"])

@@ -58,6 +58,19 @@ def build_repo_queries(cfg: Config, today: date) -> list[str]:
             for lang in cfg.languages for qual in cfg.repo_qualifiers]
 
 
+def build_discover_queries(cfg: Config, today: date) -> list[tuple[str, str]]:
+    """(query, sort) pairs for the discover lane: topic repos above the small floor, plus rising repos."""
+    pushed = (today - timedelta(days=cfg.repo_idle_days)).isoformat()
+    created = (today - timedelta(days=cfg.rising_days)).isoformat()
+    qs: list[tuple[str, str]] = []
+    for topics in cfg.discover_topics.values():
+        for t in topics:
+            qs.append((f"topic:{t} stars:>={cfg.discover_min_stars} pushed:>={pushed}", "updated"))
+    for lang in cfg.languages:
+        qs.append((f"created:>={created} stars:>={cfg.rising_min_stars} pushed:>={pushed} language:{lang}", "stars"))
+    return qs
+
+
 def external_merge_rate(merged_prs: list[dict]) -> float | None:
     if not merged_prs:
         return None
@@ -92,8 +105,9 @@ def detect_ai_policy(text: str | None, cfg: Config) -> str:
 
 
 def repo_exclusion_reason(repo: dict, cfg: Config, now: datetime) -> str | None:
-    if (repo.get("stars") or 0) < cfg.min_stars:
-        return f"stars<{cfg.min_stars}"
+    floor = cfg.discover_min_stars if repo.get("source") == "discover" else cfg.min_stars
+    if (repo.get("stars") or 0) < floor:
+        return f"stars<{floor}"
     pushed = repo.get("pushed_at")
     if pushed and (now - _parse_ts(pushed)) > timedelta(days=cfg.repo_idle_days):
         return f"idle>{cfg.repo_idle_days}d"
@@ -126,12 +140,14 @@ def issue_from_search_item(item: dict, cfg: Config) -> dict:
 
 REPO_COLS = ["full_name", "stars", "language", "description", "pushed_at", "org_known", "external_merge_rate",
              "median_first_response_hours", "signals_fetched_at", "contributing_text", "contributing_fetched_at",
-             "ai_policy", "excluded_reason"]
+             "ai_policy", "excluded_reason", "source", "rising", "created_at"]
 
 
-def _ensure_repo(conn, gh, full_name: str, cfg: Config, now: datetime) -> dict:
+def _ensure_repo(conn, gh, full_name: str, cfg: Config, now: datetime, meta: dict | None = None) -> dict:
     row = conn.execute("select * from repos where full_name = ?", (full_name,)).fetchone()
-    repo = dict(row) if row else {"full_name": full_name}
+    repo = dict(row) if row else {"full_name": full_name, "source": "search", "rising": 0}
+    if meta:
+        repo.update({k: v for k, v in meta.items() if v is not None})
     owner, name = full_name.split("/", 1)
     stale_signals = not repo.get("signals_fetched_at") or (now - _parse_ts(repo["signals_fetched_at"])) > timedelta(days=cfg.repo_signal_refresh_days)
     if stale_signals:
@@ -158,29 +174,34 @@ def _ensure_repo(conn, gh, full_name: str, cfg: Config, now: datetime) -> dict:
     return repo
 
 
-def _prefilter_repos(conn, gh, names: list[str], cfg: Config, now: datetime, s: HarvestSummary) -> dict[str, dict]:
+def _prefilter_repos(conn, gh, names: list[str], cfg: Config, now: datetime, s: HarvestSummary,
+                     meta: dict[str, dict] | None = None) -> dict[str, dict]:
     """One cheap batch call for repos we have never seen: anything under the star floor, idle, or gone is
-    recorded as excluded without the expensive per-repo signal and contributing fetches."""
+    recorded as excluded without the expensive per-repo signal and contributing fetches. `meta` carries
+    what the discover search already told us (source, rising, created_at, stars, pushed_at)."""
+    meta = meta or {}
     excluded: dict[str, dict] = {}
     if not names:
         return excluded
-    basics = gh.repo_basics(names)
+    need = [n for n in names if not (meta.get(n) and meta[n].get("stars") is not None)]
+    basics = gh.repo_basics(need) if need else {}
     for full_name in names:
-        b = basics.get(full_name)
+        m = meta.get(full_name) or {}
+        b = basics.get(full_name) if full_name in basics else ({"stars": m["stars"], "pushed_at": m.get("pushed_at")} if m.get("stars") is not None else None)
         if b is None:
             reason = "not_found"
             repo = {"full_name": full_name, "excluded_reason": reason}
         else:
-            repo = {"full_name": full_name, "stars": b["stars"], "pushed_at": b["pushed_at"]}
+            repo = {"full_name": full_name, "stars": b["stars"], "pushed_at": b["pushed_at"], "source": m.get("source", "search")}
             reason = repo_exclusion_reason(repo, cfg, now)
             repo["excluded_reason"] = reason
         if reason:
             # signals_fetched_at marks the cheap check as done so a later pass does not refetch this repo
             with conn:
-                conn.execute("insert into repos(full_name, stars, pushed_at, excluded_reason, signals_fetched_at) values (?,?,?,?,?) "
+                conn.execute("insert into repos(full_name, stars, pushed_at, excluded_reason, signals_fetched_at, source, rising, created_at) values (?,?,?,?,?,?,?,?) "
                              "on conflict(full_name) do update set stars=excluded.stars, pushed_at=excluded.pushed_at, "
                              "excluded_reason=excluded.excluded_reason, signals_fetched_at=excluded.signals_fetched_at",
-                             (full_name, repo.get("stars"), repo.get("pushed_at"), reason, _iso(now)))
+                             (full_name, repo.get("stars"), repo.get("pushed_at"), reason, _iso(now), m.get("source", "search"), int(m.get("rising") or 0), m.get("created_at")))
             excluded[full_name] = repo
             s.excluded_repos += 1
     return excluded
@@ -242,7 +263,6 @@ def run_harvest(conn, gh, cfg: Config, now: datetime | None = None, shell=None) 
                 discovered.setdefault(repo["full_name"], None)
         except Exception as e:
             s.errors.append(f"{q}: {e}")
-    s.repos_discovered = len(discovered)
     for full_name in discovered:
         owner, name = full_name.split("/", 1)
         for label in cfg.good_labels:
@@ -252,22 +272,50 @@ def run_harvest(conn, gh, cfg: Config, now: datetime | None = None, shell=None) 
             except Exception as e:
                 s.errors.append(f"{full_name} [{label}]: {e}")
 
+    # Source 3: discover lane. Topic and rising repos above the small floor; every open unassigned issue counts.
+    meta: dict[str, dict] = {}
+    rising_cutoff = (now.date() - timedelta(days=cfg.rising_days)).isoformat()
+    for q, sort in build_discover_queries(cfg, now.date()):
+        s.queries += 1
+        try:
+            for repo in gh.search_repos(q, pages=cfg.discover_pages_per_query, per_page=cfg.per_page, sort=sort):
+                full_name = repo["full_name"]
+                if full_name in discovered:
+                    continue
+                created = (repo.get("created_at") or "")[:10]
+                meta.setdefault(full_name, {"source": "discover", "stars": repo.get("stargazers_count"), "pushed_at": repo.get("pushed_at"),
+                                            "created_at": repo.get("created_at"), "rising": int(bool(created and created >= rising_cutoff))})
+        except Exception as e:
+            s.errors.append(f"{q}: {e}")
+    s.repos_discovered = len(discovered) + len(meta)
+    for full_name, m in meta.items():
+        if (m.get("stars") or 0) < cfg.discover_min_stars:
+            continue
+        owner, name = full_name.split("/", 1)
+        try:
+            for item in gh.list_issues(owner, name, None, since, pages=1, per_page=cfg.discover_issues_per_repo):
+                take(item)
+        except Exception as e:
+            s.errors.append(f"{full_name} [discover]: {e}")
+
     known = {r[0] for r in conn.execute("select full_name from repos")}
-    unknown = [name for name in dict.fromkeys(r["repo"] for r in rows) if name not in known]
+    # Discover repos under the floor are listed here too: they get an excluded row without any API call.
+    unknown = [name for name in dict.fromkeys([r["repo"] for r in rows] + list(meta)) if name not in known]
+    # Repos the discover search found but never saw before carry their metadata into the pre-filter.
     try:
-        repo_cache: dict[str, dict] = _prefilter_repos(conn, gh, unknown, cfg, now, s)
+        repo_cache: dict[str, dict] = _prefilter_repos(conn, gh, unknown, cfg, now, s, meta)
     except Exception as e:
         s.errors.append(f"prefilter: {e}")
         repo_cache = {}
     for row in rows:
         try:
-            _harvest_one(conn, gh, cfg, now, row, repo_cache, s)
+            _harvest_one(conn, gh, cfg, now, row, repo_cache, s, meta.get(row["repo"]))
         except Exception as e:
             s.errors.append(f"{row['repo']}#{row['number']}: {e}")
     return s
 
 
-def _harvest_one(conn, gh, cfg, now, row, repo_cache, s: HarvestSummary) -> None:
+def _harvest_one(conn, gh, cfg, now, row, repo_cache, s: HarvestSummary, meta: dict | None = None) -> None:
     existing = conn.execute("select state from issues where id = ?", (row["id"],)).fetchone()
     if existing and existing["state"] in transitions.TERMINAL:
         with conn:
@@ -275,7 +323,7 @@ def _harvest_one(conn, gh, cfg, now, row, repo_cache, s: HarvestSummary) -> None
         return
     if row["repo"] not in repo_cache:
         try:
-            repo_cache[row["repo"]] = _ensure_repo(conn, gh, row["repo"], cfg, now)
+            repo_cache[row["repo"]] = _ensure_repo(conn, gh, row["repo"], cfg, now, meta)
         except Exception as e:
             # One failing repo must cost one call and one error, not one per issue.
             repo_cache[row["repo"]] = {"full_name": row["repo"], "excluded_reason": f"fetch_error: {e}"}
@@ -305,11 +353,12 @@ def _harvest_one(conn, gh, cfg, now, row, repo_cache, s: HarvestSummary) -> None
     if linked:
         s.skipped_linked_pr += 1
         return
+    lane = "discover" if (repo.get("stars") or 0) < cfg.min_stars else "resume"
     with conn:
         conn.execute(
-            "insert into issues(id, repo, number, title, body, labels, url, created_at, updated_at, comments, has_bounty, bounty_source, linked_pr, assignee, state, harvested_at, last_seen_at) "
-            "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'harvested',?,?)",
+            "insert into issues(id, repo, number, title, body, labels, url, created_at, updated_at, comments, has_bounty, bounty_source, linked_pr, assignee, state, harvested_at, last_seen_at, lane) "
+            "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'harvested',?,?,?)",
             (row["id"], row["repo"], row["number"], row["title"], row["body"], json.dumps(row["labels"]), row["url"],
              row["created_at"], row["updated_at"], row["comments"], row["has_bounty"], row["bounty_source"], 0,
-             row["assignee"], _iso(now), _iso(now)))
+             row["assignee"], _iso(now), _iso(now), lane))
     s.new_issues += 1

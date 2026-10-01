@@ -73,7 +73,7 @@ class FakeGH:
         return self.contributing.get(f"{owner}/{name}")
     def repo_basics(self, names):
         return {n: ({"stars": self.signals[n]["stars"], "pushed_at": self.signals[n]["pushed_at"]} if n in self.signals else None) for n in names}
-    def search_repos(self, q, pages, per_page=100):
+    def search_repos(self, q, pages, per_page=100, sort="stars"):
         yield from ()
     def list_issues(self, owner, name, label, since, pages=2, per_page=100):
         return []
@@ -178,7 +178,7 @@ def test_run_harvest_pulls_issues_from_repo_first_source_and_dedupes(tmp_path):
     class GH(FakeGH):
         def __init__(self, *a, **k):
             super().__init__(*a, **k); self.list_calls = []
-        def search_repos(self, q, pages, per_page=100):
+        def search_repos(self, q, pages, per_page=100, sort="stars"):
             if q == rq:
                 yield {"full_name": "big/repo", "stargazers_count": 5000, "pushed_at": "2026-09-30T00:00:00Z"}
         def list_issues(self, owner, name, label, since, pages=2, per_page=100):
@@ -272,3 +272,37 @@ def test_harvest_closes_the_loop_on_open_prs(tmp_path):
     s = harvest.run_harvest(conn, gh, cfg, NOW, shell=shell)
     got = {r[0]: r[1] for r in conn.execute("select id, state from issues")}
     assert got == {"I1": "merged", "I2": "closed", "I3": "pr_open"} and s.prs_closed == 2
+
+def test_build_discover_queries_topics_and_rising():
+    cfg = Config(languages=["Python"], discover_min_stars=30, repo_idle_days=60, discover_topics={"quant_trading": ["backtesting"]},
+                 rising_days=90, rising_min_stars=50)
+    qs = harvest.build_discover_queries(cfg, date(2026, 10, 1))
+    assert ("topic:backtesting stars:>=30 pushed:>=2026-08-02", "updated") in qs
+    assert ("created:>=2026-07-03 stars:>=50 pushed:>=2026-08-02 language:Python", "stars") in qs
+
+def test_discover_repos_get_the_discover_lane_and_lower_floor(tmp_path):
+    cfg = Config(languages=["Python"], good_labels=["good first issue"], category_keywords={}, bounty_labels=[],
+                 discover_topics={"quant_trading": ["backtesting"]}, discover_min_stars=30)
+    tq = harvest.build_discover_queries(cfg, NOW.date())
+    class GH(FakeGH):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k); self.listed = []
+        def search_repos(self, q, pages, per_page=100, sort="stars"):
+            if (q, sort) == tq[0]:
+                yield {"full_name": "small/quant", "stargazers_count": 80, "pushed_at": "2026-09-30T00:00:00Z", "created_at": "2026-01-01T00:00:00Z"}
+                yield {"full_name": "tiny/quant", "stargazers_count": 5, "pushed_at": "2026-09-30T00:00:00Z", "created_at": "2026-01-01T00:00:00Z"}
+            if (q, sort) == tq[-1]:
+                yield {"full_name": "new/hot", "stargazers_count": 400, "pushed_at": "2026-09-30T00:00:00Z", "created_at": "2026-09-01T00:00:00Z"}
+        def list_issues(self, owner, name, label, since, pages=2, per_page=100):
+            self.listed.append((f"{owner}/{name}", label))
+            return [_item(f"I-{name}", f"{owner}/{name}", 1)]
+    gh = GH({}, {"small/quant": {**GOOD, "stars": 80}, "tiny/quant": {**GOOD, "stars": 5}, "new/hot": {**GOOD, "stars": 400}})
+    conn = db.connect(tmp_path / "t.db")
+    s = harvest.run_harvest(conn, gh, cfg, NOW)
+    assert ("small/quant", None) in gh.listed and ("new/hot", None) in gh.listed
+    rows = {r["repo"]: r["lane"] for r in conn.execute("select repo, lane from issues")}
+    assert rows == {"small/quant": "discover", "new/hot": "resume"}  # 400 stars passes the main floor
+    repos = {r["full_name"]: (r["source"], r["rising"], r["excluded_reason"]) for r in conn.execute("select full_name, source, rising, excluded_reason from repos")}
+    assert repos["small/quant"][:2] == ("discover", 0) and repos["new/hot"][:2] == ("discover", 1)
+    assert repos["tiny/quant"][2] == "stars<30"
+    assert s.repos_discovered == 3

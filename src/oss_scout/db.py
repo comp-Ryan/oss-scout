@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 SCHEMA_V1 = """
 create table if not exists meta (key text primary key, value text not null);
@@ -97,6 +97,10 @@ create table if not exists drafts (
 );
 """
 
+# v5 adds columns; sqlite has no "add column if not exists", so migrate() applies these guarded.
+V5_COLUMNS = [("issues", "lane", "text not null default 'resume'"), ("repos", "source", "text not null default 'search'"),
+              ("repos", "rising", "integer not null default 0"), ("repos", "created_at", "text")]
+
 SCHEMA = SCHEMA_V1 + SCHEMA_V2 + SCHEMA_V3 + SCHEMA_V4
 
 
@@ -116,5 +120,9 @@ def connect(path: Path) -> sqlite3.Connection:
 
 def migrate(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    for table, col, decl in V5_COLUMNS:
+        have = {r[1] for r in conn.execute(f"pragma table_info({table})")}
+        if col not in have:
+            conn.execute(f"alter table {table} add column {col} {decl}")
     conn.execute("insert into meta(key, value) values ('schema_version', ?) on conflict(key) do update set value = excluded.value", (SCHEMA_VERSION,))
     conn.commit()

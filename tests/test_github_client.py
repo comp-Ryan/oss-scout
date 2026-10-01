@@ -179,3 +179,10 @@ def test_related_prs_returns_every_cross_referenced_pr():
     prs = c.related_prs("I_x")
     assert prs == [{"number": 2, "state": "OPEN", "title": "Fix it", "url": "u2", "will_close": True},
                    {"number": 5, "state": "MERGED", "title": "Related", "url": "u5", "will_close": False}]
+
+def test_search_repos_accepts_sort_and_list_issues_without_label():
+    c, calls, _ = make_client([FakeResp({"items": []}), FakeResp([])])
+    list(c.search_repos("q", pages=1, per_page=5, sort="updated"))
+    assert "sort=updated" in calls[0].full_url
+    list(c.list_issues("o", "r", None, since="2026-09-01T00:00:00Z", pages=1, per_page=30))
+    assert "labels=" not in calls[1].full_url and "per_page=30" in calls[1].full_url

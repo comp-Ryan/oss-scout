@@ -82,3 +82,8 @@ def test_queue_all_scored_sort_and_difficulty_and_offset(tmp_path):
     assert [r["id"] for r in queue_view.queue_rows(conn, None, None, 10, all_scored=True, difficulty="medium")] == ["C"]
     page2 = queue_view.queue_rows(conn, None, None, 2, all_scored=True, offset=2)
     assert [r["id"] for r in page2] == ["A"] and page2[0]["rank"] == 3
+
+def test_preview_skips_code_fences_and_no_response_lines():
+    body = "### Description\n_No response_\n### Repro\n```python\nimport x\nx.run()\n```\nThe stream stays open after the child exits.\n"
+    p = queue_view.preview(body)
+    assert p == "The stream stays open after the child exits."

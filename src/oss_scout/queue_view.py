@@ -20,16 +20,18 @@ from issues i join repos r on r.full_name = i.repo
 
 
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
+_FENCE = re.compile(r"```.*?```", re.S)
+_NO_RESPONSE = re.compile(r"^\s*_?no response_?\s*$", re.I)
 _SKIP_LINE = re.compile(r"^\s*(#{1,6}\s|[-*]\s*\[[ xX]\]|\[[ xX]\]|!\[|<[a-z]|\|)")  # headings, checklists, images, html, tables
 _LABEL_LINE = re.compile(r"^\s*\*\*[^*]+\*\*:?\s*$")  # bold-only lines like **Describe the bug**
 
 
 def preview(body: str | None) -> str:
     """First real prose of an issue body: no HTML comments, template headings, checklists, images or tables."""
-    text = _COMMENT.sub("", body or "")
+    text = _FENCE.sub("", _COMMENT.sub("", body or ""))
     kept = []
     for line in text.splitlines():
-        if not line.strip() or _SKIP_LINE.match(line) or _LABEL_LINE.match(line):
+        if not line.strip() or _SKIP_LINE.match(line) or _LABEL_LINE.match(line) or _NO_RESPONSE.match(line):
             continue
         kept.append(line.strip())
         if sum(len(k) for k in kept) > PREVIEW_CHARS * 2:

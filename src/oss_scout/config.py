@@ -64,6 +64,10 @@ class Config:
     jev_model: str = "jev-latest"
     dropped_questions: list[str] = field(default_factory=list)
     gemini_model: str = "gemini-3.8-flash-medium"
+    analysis_model: str = "gemini-3.8-flash-medium"
+    analysis_daily_cap: int = 30
+    analysis_timeout_s: float = 600.0
+    analysis_max_attempts: int = 2
     data_dir: Path = field(default_factory=lambda: PROJECT_ROOT / "data")
 
     @property
@@ -77,6 +81,10 @@ class Config:
     @property
     def log_path(self) -> Path:
         return self.data_dir / "scout.log"
+
+    @property
+    def clones_dir(self) -> Path:
+        return self.data_dir / "clones"
 
 
 def load_config(path: Path | None = None) -> Config:

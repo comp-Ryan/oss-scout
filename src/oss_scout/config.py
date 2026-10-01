@@ -42,6 +42,7 @@ class Config:
         r"no\s+(ai|llm)[-\s]?(generated|written|assisted)",
         r"(ai|llm)[-\s]?(generated|assisted)\s+(prs?|pull requests?|contributions?|code)\s+(are|is|will be)\s+(not accepted|rejected|closed|banned|prohibited)",
         r"do not (submit|open) (ai|llm)[-\s]?(generated|assisted)",
+        r"(do not|don'?t|won'?t|will not|cannot|can'?t)\s+(accept|merge|review)\s+(any\s+)?(ai|llm)[-\s]?(generated|assisted|written)",
     ])
     ai_policy_discouraged_patterns: list[str] = field(default_factory=lambda: [
         r"(ai|llm)[-\s]?(generated|assisted)",

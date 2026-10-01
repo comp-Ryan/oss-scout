@@ -3,3 +3,5 @@ data/
 .env
 __pycache__/
 *.egg-info/
+web/node_modules/
+web/dist/

@@ -203,3 +203,21 @@ def status_command():
     console.print(f"last transition: {last[0] if last else 'never'}")
     repos = conn.execute("select count(*), sum(excluded_reason is not null) from repos").fetchone()
     console.print(f"repos: {repos[0]} (excluded {repos[1] or 0})")
+
+
+@main.command("serve")
+@click.option("--host", default="127.0.0.1")
+@click.option("--port", type=int, default=8765)
+def serve_command(host, port):
+    """Run the dashboard API (and the built frontend) locally."""
+    import uvicorn
+    from oss_scout.api.app import create_app
+    cfg = load_config(); _setup_logging(cfg)
+    uvicorn.run(create_app(cfg, gh_factory=lambda: _gh(cfg)), host=host, port=port, log_level="info")
+
+
+@main.command("open")
+def open_command():
+    """Open the dashboard in the browser."""
+    import subprocess
+    subprocess.Popen(["xdg-open", "http://127.0.0.1:8765"])

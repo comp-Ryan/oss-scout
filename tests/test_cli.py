@@ -51,3 +51,12 @@ def test_help_lists_analyze_runs_brief():
     r = CliRunner().invoke(cli.main, ["--help"])
     for name in ("analyze", "runs", "brief"):
         assert name in r.output
+
+def test_help_lists_serve_and_open():
+    r = CliRunner().invoke(cli.main, ["--help"])
+    assert "serve" in r.output and "open" in r.output
+
+def test_service_unit_exists_with_path():
+    from pathlib import Path
+    unit = (Path(__file__).resolve().parents[1] / "systemd" / "oss-scout.service").read_text()
+    assert "uv run scout serve" in unit and "Environment=PATH=/home/ryan/.local/bin:" in unit and "Restart=on-failure" in unit

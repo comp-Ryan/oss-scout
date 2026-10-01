@@ -1,0 +1,14 @@
+[Unit]
+Description=OSS Scout dashboard API
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ryan/Coding_Projects/business projects/oss-scout
+Environment=PATH=/home/ryan/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/ryan/.local/bin/uv run scout serve
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

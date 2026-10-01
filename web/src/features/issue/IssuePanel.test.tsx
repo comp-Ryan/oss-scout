@@ -42,3 +42,9 @@ test('discussing: approve sends the plan; drafting: prepare, launch and submit; 
   expect(submit).toHaveBeenCalledWith('A', 'Fix the thing', expect.stringContaining('Do X'))
   await waitFor(() => expect(screen.getByText(/FAILED test_y/)).toBeInTheDocument())
 })
+
+test('the move control is labeled even before a choice is made', async () => {
+  vi.spyOn(api, 'getIssue').mockResolvedValue(detail({ issue: { ...detail().issue, state: 'discussing' }, thread: { conversation_id: 'c', plan: 'P' } }))
+  renderApp(<IssuePanel id="A" />)
+  expect(await screen.findByRole('combobox', { name: /move to/i })).toHaveTextContent(/move to/i)
+})

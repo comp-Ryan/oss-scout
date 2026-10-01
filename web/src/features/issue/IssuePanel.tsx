@@ -42,7 +42,7 @@ export function IssuePanel({ id, onBack }: { id: string; onBack?: () => void }) 
           {['analyzed', 'shortlisted', 'classified'].includes(state) && <Button variant="primary" onClick={() => discuss.mutate([id])}>Work on it</Button>}
           {!TERMINAL.includes(state) && state !== 'shortlisted' && state !== 'classified' && (
             <Select label="move to" value="" onValueChange={c => { const pr = c === 'PR opened' && !d.draft?.pr_url ? window.prompt('Link to the PR') || undefined : undefined; if (c !== 'PR opened' || pr || d.draft?.pr_url) move.mutate([id, c, pr]) }}
-              options={[{ value: '', label: 'Move to' }, ...COLUMNS.map(c => ({ value: c, label: c }))]} />
+              placeholder="Move to" options={COLUMNS.map(c => ({ value: c, label: c }))} />
           )}
           {!TERMINAL.includes(state) && <Button variant="danger" onClick={() => dismiss.mutate([id, ''])}>Dismiss</Button>}
         </div>

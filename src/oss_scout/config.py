@@ -68,6 +68,8 @@ class Config:
     analysis_daily_cap: int = 30
     analysis_timeout_s: float = 600.0
     analysis_max_attempts: int = 2
+    chat_model: str = "claude-sonnet-4-6"
+    chat_timeout_s: float = 300.0
     data_dir: Path = field(default_factory=lambda: PROJECT_ROOT / "data")
 
     @property

@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 SCHEMA_V1 = """
 create table if not exists meta (key text primary key, value text not null);
@@ -74,7 +74,21 @@ create table if not exists agent_events (
 create index if not exists agent_events_run on agent_events(run_id, seq);
 """
 
-SCHEMA = SCHEMA_V1 + SCHEMA_V2
+SCHEMA_V3 = """
+create table if not exists threads (
+  issue_id text primary key references issues(id),
+  conversation_id text, plan text, created_at text not null
+);
+create table if not exists messages (
+  id integer primary key autoincrement,
+  issue_id text not null references issues(id),
+  role text not null, content text not null, at text not null,
+  input_tokens integer, output_tokens integer
+);
+create index if not exists messages_issue on messages(issue_id, id);
+"""
+
+SCHEMA = SCHEMA_V1 + SCHEMA_V2 + SCHEMA_V3
 
 
 def utcnow() -> str:

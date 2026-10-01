@@ -1,0 +1,22 @@
+import type { IssueDetail, Message, QueueRow, Run, RunEvent, Settings } from './types'
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...init })
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`)
+  return r.json()
+}
+const qs = (p: Record<string, string | number | undefined>) =>
+  Object.entries(p).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&')
+
+export const getStatus = () => call<any>('/api/status')
+export const getQueue = (p: { category?: string; state?: string; limit?: number }) => call<QueueRow[]>(`/api/queue?${qs(p)}`)
+export const getIssue = (id: string) => call<IssueDetail>(`/api/issues/${id}`)
+export const postDismiss = (id: string, note: string) => call<any>(`/api/issues/${id}/dismiss`, { method: 'POST', body: JSON.stringify({ note }) })
+export const postDiscuss = (id: string) => call<any>(`/api/issues/${id}/discuss`, { method: 'POST' })
+export const postApprove = (id: string, plan: string) => call<any>(`/api/issues/${id}/approve`, { method: 'POST', body: JSON.stringify({ plan }) })
+export const getMessages = (id: string) => call<Message[]>(`/api/issues/${id}/messages`)
+export const postMessage = (id: string, content: string) => call<{ user: Message; assistant: Message }>(`/api/issues/${id}/messages`, { method: 'POST', body: JSON.stringify({ content }) })
+export const getRuns = () => call<Run[]>('/api/runs')
+export const getEvents = (runId: number, after: number) => call<{ status: string; events: RunEvent[] }>(`/api/runs/${runId}/events?after=${after}`)
+export const getSettings = () => call<Settings>('/api/settings')
+export const putSettings = (s: Partial<Settings>) => call<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(s) })

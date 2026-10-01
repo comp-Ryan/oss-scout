@@ -159,3 +159,12 @@ def test_requests_are_paced_by_min_interval():
     c = GitHubClient("tok", sleep=sleep, opener=opener, now=lambda: clock["t"], min_interval=0.5)
     c.rest("a"); c.rest("b")
     assert slept == [0.5]  # second call waited out the interval; first did not
+
+def test_search_requests_use_their_own_slower_interval():
+    responses = [FakeResp({"items": [{"id": 1}]}), FakeResp({"items": [{"id": 2}]}), FakeResp({"ok": 1})]
+    slept, clock = [], {"t": 1000.0}
+    def opener(req, timeout=0): return responses.pop(0)
+    def sleep(s): slept.append(s); clock["t"] += s
+    c = GitHubClient("tok", sleep=sleep, opener=opener, now=lambda: clock["t"], min_interval=0.25, search_min_interval=2.0)
+    list(c.search_issues("a", pages=1, per_page=1)); list(c.search_repos("b", pages=1, per_page=1)); c.rest("x")
+    assert slept == [2.0, 0.25]  # search waits the search gap; a plain request only the ordinary gap

@@ -29,19 +29,21 @@ class GitHubClient:
 
     def __init__(self, token: str, sleep: Callable[[float], None] = time.sleep,
                  opener: Callable = urllib.request.urlopen, now: Callable[[], float] = time.time,
-                 timeout: float = 30.0, min_interval: float = 0.0):
+                 timeout: float = 30.0, min_interval: float = 0.0, search_min_interval: float | None = None):
         self.token = token
         self.sleep = sleep
         self.opener = opener
         self.now = now
         self.timeout = timeout
         self.min_interval = min_interval
+        self.search_min_interval = search_min_interval if search_min_interval is not None else min_interval
         self._last_request: float | None = None
         self.requests_made = 0
 
-    def _pace(self) -> None:
-        if self.min_interval and self._last_request is not None:
-            gap = self._last_request + self.min_interval - self.now()
+    def _pace(self, search: bool = False) -> None:
+        interval = self.search_min_interval if search else self.min_interval
+        if interval and self._last_request is not None:
+            gap = self._last_request + interval - self.now()
             if gap > 0:
                 self.sleep(gap)
         self._last_request = self.now()
@@ -50,10 +52,10 @@ class GitHubClient:
             log.info("github requests made: %d", self.requests_made)
 
     # ---- low level -------------------------------------------------------
-    def _request(self, method: str, url: str, body: bytes | None = None) -> tuple[Any, dict]:
+    def _request(self, method: str, url: str, body: bytes | None = None, search: bool = False) -> tuple[Any, dict]:
         retries_5xx = 0
         while True:
-            self._pace()
+            self._pace(search)
             req = urllib.request.Request(url, data=body, method=method, headers={
                 "Authorization": f"Bearer {self.token}",
                 "Accept": "application/vnd.github+json",
@@ -94,7 +96,7 @@ class GitHubClient:
         url = f"{API}/{path.lstrip('/')}"
         if params:
             url += "?" + urllib.parse.urlencode(params)
-        return self._request("GET", url)
+        return self._request("GET", url, search=path.startswith("search/"))
 
     def graphql(self, query: str, variables: dict) -> dict:
         body = json.dumps({"query": query, "variables": variables}).encode()

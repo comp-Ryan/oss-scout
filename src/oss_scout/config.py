@@ -32,6 +32,7 @@ class Config:
     per_page: int = 100
     repo_pages_per_query: int = 1
     github_min_interval: float = 0.25  # seconds between GitHub requests; stays under the secondary rate limit
+    github_search_min_interval: float = 2.1  # search bucket is 30/min and trips a secondary limit when burst
     repo_qualifiers: list[str] = field(default_factory=lambda: ["good-first-issues", "help-wanted-issues"])
     languages: list[str] = field(default_factory=lambda: ["Python", "TypeScript"])
     good_labels: list[str] = field(default_factory=lambda: ["good first issue", "help wanted"])

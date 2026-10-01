@@ -5,6 +5,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 from oss_scout import classify, db, harvest, queue_view, score, transitions, validate
+from oss_scout.agents import analysis
 from oss_scout.config import load_config as _load_config, jev_api_key
 from oss_scout.github_client import GitHubClient, github_token
 from oss_scout.jev_client import JevClient
@@ -27,8 +28,30 @@ def _classifiers(cfg):
     return primary, fallback
 
 
+def _gh(cfg):
+    return GitHubClient(github_token(), min_interval=cfg.github_min_interval, search_min_interval=cfg.github_search_min_interval)
+
+
+def _issue_id(conn, ref: str) -> str:
+    try:
+        repo, number = ref.split("#", 1)
+        row = conn.execute("select id from issues where repo = ? and number = ?", (repo, int(number))).fetchone()
+    except ValueError:
+        raise click.BadParameter("expected owner/repo#number")
+    if row is None:
+        raise click.ClickException(f"no such issue {ref}")
+    return row["id"]
+
+
+def _do_analyze(cfg, conn, limit=None):
+    s = analysis.run_pending(conn, cfg, _gh(cfg), limit)
+    logging.info("analyze %s", s)
+    console.print(f"analyze: started={s.started} done={s.done} failed={s.failed} skipped_cap={s.skipped_cap} skipped_attempts={s.skipped_attempts}")
+    return s
+
+
 def _do_harvest(cfg, conn):
-    s = harvest.run_harvest(conn, GitHubClient(github_token(), min_interval=cfg.github_min_interval, search_min_interval=cfg.github_search_min_interval), cfg)
+    s = harvest.run_harvest(conn, _gh(cfg), cfg)
     logging.info("harvest %s", s)
     console.print(f"harvest: queries={s.queries} seen={s.seen} new={s.new_issues} updated={s.updated_issues} "
                   f"excluded_repos={s.excluded_repos} linked_pr={s.skipped_linked_pr} stale={s.marked_stale} errors={len(s.errors)}")
@@ -86,7 +109,7 @@ def run_command():
     """harvest, classify, score. What the hourly timer calls."""
     cfg = load_config(); _setup_logging(cfg)
     conn = db.connect(cfg.db_path)
-    _do_harvest(cfg, conn); _do_classify(cfg, conn); _do_score(cfg, conn)
+    _do_harvest(cfg, conn); _do_classify(cfg, conn); _do_score(cfg, conn); _do_analyze(cfg, conn)
 
 
 @main.command("validate-classifier")
@@ -124,15 +147,47 @@ def dismiss_command(issue, note):
     """Dismiss owner/repo#number so it never comes back."""
     cfg = load_config(); _setup_logging(cfg)
     conn = db.connect(cfg.db_path)
-    try:
-        repo, number = issue.split("#", 1)
-        row = conn.execute("select id from issues where repo = ? and number = ?", (repo, int(number))).fetchone()
-    except ValueError:
-        raise click.BadParameter("expected owner/repo#number")
-    if row is None:
-        raise click.ClickException(f"no such issue {issue}")
-    transitions.apply(conn, row["id"], "dismissed", "user", note)
+    transitions.apply(conn, _issue_id(conn, issue), "dismissed", "user", note)
     console.print(f"dismissed {issue}")
+
+
+@main.command("analyze")
+@click.option("--limit", type=int, default=None)
+@click.option("--issue", default=None, help="owner/repo#number: analyze this one issue")
+def analyze_command(limit, issue):
+    """Run the analysis agent on shortlisted issues (score order, daily cap)."""
+    cfg = load_config(); _setup_logging(cfg)
+    conn = db.connect(cfg.db_path)
+    if issue:
+        rid = analysis.run_one(conn, cfg, _gh(cfg), _issue_id(conn, issue))
+        row = conn.execute("select status, error from agent_runs where id = ?", (rid,)).fetchone()
+        console.print(f"run {rid}: {row['status']} {row['error'] or ''}")
+    else:
+        _do_analyze(cfg, conn, limit)
+
+
+@main.command("runs")
+@click.option("--limit", type=int, default=20)
+def runs_command(limit):
+    """Recent agent runs."""
+    cfg = load_config()
+    conn = db.connect(cfg.db_path)
+    for r in conn.execute("select a.id, a.status, a.model, a.started_at, a.duration_s, a.input_tokens, a.output_tokens, a.error, i.repo, i.number "
+                          "from agent_runs a join issues i on i.id = a.issue_id order by a.id desc limit ?", (limit,)):
+        console.print(f"{r['id']:>4} {r['status']:<7} {r['repo']}#{r['number']} {r['model']} {r['started_at']} "
+                      f"{(r['duration_s'] or 0):.0f}s in={r['input_tokens'] or 0} out={r['output_tokens'] or 0} {r['error'] or ''}")
+
+
+@main.command("brief")
+@click.argument("issue")
+def brief_command(issue):
+    """Print the latest analysis brief for owner/repo#number."""
+    cfg = load_config()
+    conn = db.connect(cfg.db_path)
+    b = analysis.latest_brief(conn, _issue_id(conn, issue))
+    if b is None:
+        raise click.ClickException(f"no brief for {issue}")
+    console.print(json.dumps(b, indent=1))
 
 
 @main.command("status")

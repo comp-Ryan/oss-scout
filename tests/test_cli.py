@@ -31,3 +31,23 @@ def test_help_lists_all_commands():
     r = CliRunner().invoke(cli.main, ["--help"])
     for name in ("harvest", "classify", "score", "run", "validate-classifier", "queue", "dismiss", "status"):
         assert name in r.output
+
+def test_runs_and_brief_commands(tmp_path, monkeypatch):
+    cfg = Config(data_dir=tmp_path)
+    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+    conn = db.connect(cfg.db_path)
+    conn.execute("insert into repos(full_name) values ('o/r')")
+    conn.execute("insert into issues(id, repo, number, title, url, state, harvested_at, last_seen_at) values ('I1','o/r',4,'t','u','analyzed','x','x')")
+    conn.execute("insert into agent_runs(issue_id, model, status, started_at, finished_at, duration_s, input_tokens, brief) values ('I1','m','done','2026-10-01T00:00:00Z','2026-10-01T00:00:10Z',10.0,100,'{\"summary\":\"S\",\"files\":[\"a.py\"],\"effort\":\"small\"}')")
+    conn.commit(); conn.close()
+    r = CliRunner().invoke(cli.main, ["runs"])
+    assert r.exit_code == 0 and "o/r#4" in r.output and "done" in r.output
+    r = CliRunner().invoke(cli.main, ["brief", "o/r#4"])
+    assert r.exit_code == 0 and "S" in r.output and "a.py" in r.output
+    r = CliRunner().invoke(cli.main, ["brief", "o/r#99"])
+    assert r.exit_code != 0
+
+def test_help_lists_analyze_runs_brief():
+    r = CliRunner().invoke(cli.main, ["--help"])
+    for name in ("analyze", "runs", "brief"):
+        assert name in r.output

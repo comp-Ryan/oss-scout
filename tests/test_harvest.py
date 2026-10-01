@@ -224,3 +224,32 @@ def test_ensure_repo_skips_contributing_fetch_when_already_excluded(tmp_path):
     assert small["excluded_reason"] == "stars<200" and gh.contrib_calls == 0
     good = harvest._ensure_repo(conn, gh, "o/good", cfg, NOW)
     assert good["excluded_reason"] is None and gh.contrib_calls == 1
+
+def test_closing_pr_does_not_stale_an_issue_ryan_is_working_on(tmp_path):
+    from oss_scout import transitions
+    cfg = _cfg()
+    q = harvest.build_queries(cfg, NOW.date())[0]
+    gh = FakeGH({q: [_item("I1", "o/good")]}, {"o/good": GOOD})
+    conn = db.connect(tmp_path / "t.db")
+    harvest.run_harvest(conn, gh, cfg, NOW)
+    for to, actor in [("classified", "classifier"), ("shortlisted", "scorer"), ("analyzed", "agent:1"), ("discussing", "user")]:
+        transitions.apply(conn, "I1", to, actor)
+    gh.closing["I1"] = True
+    s = harvest.run_harvest(conn, gh, cfg, NOW + timedelta(hours=1))
+    assert s.marked_stale == 0
+    assert conn.execute("select state from issues where id='I1'").fetchone()[0] == "discussing"
+
+def test_repo_fetch_error_is_recorded_once_not_per_issue(tmp_path):
+    cfg = _cfg()
+    q = harvest.build_queries(cfg, NOW.date())[0]
+    class GH(FakeGH):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k); self.signal_calls = 0
+        def repo_signals(self, owner, name):
+            self.signal_calls += 1
+            raise RuntimeError("repository o/gone not found")
+    gh = GH({q: [_item("I1", "o/gone", 1), _item("I2", "o/gone", 2), _item("I3", "o/gone", 3)]},
+            {"o/gone": GOOD})  # passes the cheap pre-filter, then the full fetch fails
+    conn = db.connect(tmp_path / "t.db")
+    s = harvest.run_harvest(conn, gh, cfg, NOW)
+    assert gh.signal_calls == 1 and len(s.errors) == 1 and s.new_issues == 0

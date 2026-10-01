@@ -17,3 +17,8 @@ def test_yaml_overrides(tmp_path):
     assert cfg.min_stars == 50
     assert cfg.weights["bounty"] == 2.0
     assert cfg.weights["recognition"] == 3.0  # untouched default survives a partial override
+
+def test_systemd_unit_puts_local_bin_on_path():
+    from pathlib import Path
+    unit = (Path(__file__).resolve().parents[1] / "systemd" / "oss-scout-run.service").read_text()
+    assert "Environment=PATH=/home/ryan/.local/bin:" in unit

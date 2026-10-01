@@ -8,6 +8,9 @@ from oss_scout import transitions
 from oss_scout.config import Config
 
 MAINTAINER = {"OWNER", "MEMBER", "COLLABORATOR"}
+# Only issues nobody has started on can be marked stale by the harvester. Once Ryan is discussing,
+# planning, drafting or has a PR open, his own PR would otherwise look like "someone else got there first".
+STALEABLE = {"harvested", "classified", "shortlisted", "analyzed"}
 BASE = "is:issue is:open no:assignee"
 
 
@@ -249,11 +252,20 @@ def _harvest_one(conn, gh, cfg, now, row, repo_cache, s: HarvestSummary) -> None
             conn.execute("update issues set last_seen_at = ? where id = ?", (_iso(now), row["id"]))
         return
     if row["repo"] not in repo_cache:
-        repo_cache[row["repo"]] = _ensure_repo(conn, gh, row["repo"], cfg, now)
+        try:
+            repo_cache[row["repo"]] = _ensure_repo(conn, gh, row["repo"], cfg, now)
+        except Exception as e:
+            # One failing repo must cost one call and one error, not one per issue.
+            repo_cache[row["repo"]] = {"full_name": row["repo"], "excluded_reason": f"fetch_error: {e}"}
+            s.errors.append(f"{row['repo']}: {e}")
         if repo_cache[row["repo"]].get("excluded_reason"):
             s.excluded_repos += 1
     repo = repo_cache[row["repo"]]
     if repo.get("excluded_reason"):
+        return
+    if existing and existing["state"] not in STALEABLE:
+        with conn:
+            conn.execute("update issues set last_seen_at = ? where id = ?", (_iso(now), row["id"]))
         return
     linked = gh.has_closing_pr(row["id"])
     if existing:

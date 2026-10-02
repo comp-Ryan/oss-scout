@@ -26,6 +26,7 @@ class HarvestSummary:
     marked_stale: int = 0
     prs_closed: int = 0
     seeds: int = 0
+    skipped_bots: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -141,6 +142,12 @@ def repo_exclusion_reason(repo: dict, cfg: Config, now: datetime) -> str | None:
     return None
 
 
+def is_bot(row: dict) -> bool:
+    """Bot-opened issues (CI trackers, dependabot, renovate) are not contribution opportunities."""
+    author = (row.get("author") or "")
+    return row.get("author_type") == "Bot" or author.endswith("[bot]")
+
+
 def issue_from_search_item(item: dict, cfg: Config) -> dict:
     labels = [l["name"] for l in item.get("labels", [])]
     lower = {l.lower() for l in labels}
@@ -160,6 +167,8 @@ def issue_from_search_item(item: dict, cfg: Config) -> dict:
         "has_bounty": has_bounty,
         "bounty_source": "label" if has_bounty else None,
         "assignee": (item.get("assignee") or {}).get("login"),
+        "author": (item.get("user") or {}).get("login"),
+        "author_type": (item.get("user") or {}).get("type"),
     }
 
 
@@ -403,6 +412,13 @@ def _harvest_one(conn, gh, cfg, now, row, repo_cache, s: HarvestSummary, meta: d
         with conn:
             conn.execute("update issues set last_seen_at = ? where id = ?", (_iso(now), row["id"]))
         return
+    if existing and is_bot(row):
+        transitions.apply(conn, row["id"], "stale", "harvester", "bot-authored")
+        s.marked_stale += 1
+        return
+    if not existing and is_bot(row):
+        s.skipped_bots += 1
+        return
     linked = gh.has_closing_pr(row["id"])
     if existing:
         if linked or row["assignee"]:
@@ -411,9 +427,9 @@ def _harvest_one(conn, gh, cfg, now, row, repo_cache, s: HarvestSummary, meta: d
             return
         with conn:
             conn.execute(
-                "update issues set title=?, body=?, labels=?, updated_at=?, comments=?, has_bounty=?, bounty_source=?, last_seen_at=? where id=?",
+                "update issues set title=?, body=?, labels=?, updated_at=?, comments=?, has_bounty=?, bounty_source=?, last_seen_at=?, author=?, author_type=? where id=?",
                 (row["title"], row["body"], json.dumps(row["labels"]), row["updated_at"], row["comments"],
-                 row["has_bounty"], row["bounty_source"], _iso(now), row["id"]))
+                 row["has_bounty"], row["bounty_source"], _iso(now), row["author"], row["author_type"], row["id"]))
         s.updated_issues += 1
         return
     if linked:
@@ -422,9 +438,9 @@ def _harvest_one(conn, gh, cfg, now, row, repo_cache, s: HarvestSummary, meta: d
     lane = "discover" if (repo.get("stars") or 0) < cfg.min_stars else "resume"
     with conn:
         conn.execute(
-            "insert into issues(id, repo, number, title, body, labels, url, created_at, updated_at, comments, has_bounty, bounty_source, linked_pr, assignee, state, harvested_at, last_seen_at, lane) "
-            "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'harvested',?,?,?)",
+            "insert into issues(id, repo, number, title, body, labels, url, created_at, updated_at, comments, has_bounty, bounty_source, linked_pr, assignee, state, harvested_at, last_seen_at, lane, author, author_type) "
+            "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'harvested',?,?,?,?,?)",
             (row["id"], row["repo"], row["number"], row["title"], row["body"], json.dumps(row["labels"]), row["url"],
              row["created_at"], row["updated_at"], row["comments"], row["has_bounty"], row["bounty_source"], 0,
-             row["assignee"], _iso(now), _iso(now), lane))
+             row["assignee"], _iso(now), _iso(now), lane, row["author"], row["author_type"]))
     s.new_issues += 1

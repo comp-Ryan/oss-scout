@@ -368,3 +368,27 @@ def test_seed_repos_are_capped_per_run_and_unknown_ones_go_first(tmp_path):
     gh.listed.clear()
     harvest.run_harvest(conn, gh, cfg, NOW + timedelta(hours=1), seeds_fn=lambda cfg_: rows)
     assert gh.listed == ["s/d", "s/a"]  # the last unknown, then the known one with the oldest signals
+
+def test_bot_authored_issues_are_skipped_and_existing_ones_retired(tmp_path):
+    cfg = _cfg()
+    q = harvest.build_queries(cfg, NOW.date())[0]
+    human = {**_item("I1", "o/good", 1), "user": {"login": "someone", "type": "User"}}
+    bot = {**_item("I2", "o/good", 2), "user": {"login": "github-actions[bot]", "type": "Bot"}}
+    gh = FakeGH({q: [human, bot]}, {"o/good": GOOD})
+    conn = db.connect(tmp_path / "t.db")
+    s = harvest.run_harvest(conn, gh, cfg, NOW)
+    assert s.new_issues == 1 and s.skipped_bots == 1
+    assert conn.execute("select author, author_type from issues where id='I1'").fetchone()[:] == ("someone", "User")
+    # an issue harvested before this rule, now seen again with a bot author, is marked stale
+    conn.execute("insert into issues(id, repo, number, title, url, state, harvested_at, last_seen_at) values ('I3','o/good',3,'t','u','shortlisted','x','x')"); conn.commit()
+    gh.items[q].append({**_item("I3", "o/good", 3), "user": {"login": "dependabot[bot]", "type": "Bot"}})
+    s = harvest.run_harvest(conn, gh, cfg, NOW + timedelta(hours=1))
+    assert conn.execute("select state from issues where id='I3'").fetchone()[0] == "stale" and s.marked_stale == 1
+
+def test_issue_from_search_item_reads_author():
+    item = {"node_id": "I1", "number": 7, "title": "t", "body": None, "html_url": "u", "repository_url": "https://api.github.com/repos/o/r",
+            "labels": [], "created_at": "c", "updated_at": "u2", "comments": 2, "assignee": None, "user": {"login": "renovate[bot]", "type": "Bot"}}
+    row = harvest.issue_from_search_item(item, Config())
+    assert row["author"] == "renovate[bot]" and row["author_type"] == "Bot" and harvest.is_bot(row)
+    assert harvest.is_bot({"author": "copilot-swe-agent", "author_type": "User"}) is False
+    assert harvest.is_bot({"author": "x[bot]", "author_type": None}) is True

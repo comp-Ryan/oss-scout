@@ -21,7 +21,7 @@ def test_yaml_overrides(tmp_path):
 def test_systemd_unit_puts_local_bin_on_path():
     from pathlib import Path
     unit = (Path(__file__).resolve().parents[1] / "systemd" / "oss-scout-run.service").read_text()
-    assert "Environment=PATH=/home/ryan/.local/bin:" in unit
+    assert "Environment=PATH=@UV_DIR@:" in unit and "WorkingDirectory=@SCOUT_DIR@" in unit
 
 def test_update_yaml_merges_section_and_keeps_other_keys(tmp_path):
     from oss_scout.config import update_yaml, load_config

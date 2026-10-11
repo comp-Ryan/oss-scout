@@ -1,5 +1,8 @@
 from __future__ import annotations
 import json
+import os
+import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -110,6 +113,67 @@ class GeminiClassifier:
         data = _extract_json(r.stdout)
         return {q: {"choice": data.get(q) if data.get(q) in spec["criteria"] else None, "confidence": None, "probabilities": {}}
                 for q, spec in questions.items()}
+
+
+# Words that point to a category. The first category with the most hits wins; no hits means "other".
+CATEGORY_KEYWORDS = {
+    "quant_trading": ["backtest", "trading", "ohlc", "candlestick", "portfolio", "broker", "order book", "quant"],
+    "prediction_markets_finance": ["prediction market", "polymarket", "kalshi", "betting", "payment", "finance", "stripe"],
+    "ai_agents_llm": ["llm", "agent", "mcp", "prompt", "openai", "anthropic", "gpt", "rag", "embedding", "inference"],
+    "ml_data_science": ["machine learning", "deep learning", "pytorch", "tensorflow", "training", "dataset", "notebook", "scikit"],
+    "data_scraping": ["dataframe", "scrap", "etl", "parquet", "csv", "pandas", "crawler"],
+    "backend_api": ["rest api", "graphql", "orm", "database", "sql", "auth", "fastapi", "django", "flask", "queue"],
+    "web_frontend": ["react", "frontend", "css", "component", "vue", "svelte", "tailwind", "ui library"],
+    "dev_tools_cli": ["cli", "command line", "linter", "build system", "editor", "package manager", "formatter"],
+    "devops_cloud": ["kubernetes", "docker", "terraform", "ci/cd", "helm", "observability", "aws", "gcp", "azure"],
+    "security": ["security", "vulnerab", "crypto", "secret", "cve", "scanner"],
+    "iot_embedded": ["firmware", "microcontroller", "arduino", "esp32", "home assistant", "robot", "sensor"],
+    "logic_formal_methods": ["proof", "theorem", "sat solver", "smt", "lean", "coq", "formal verification"],
+    "philosophy_religion": ["philosophy", "theology", "bible", "scripture", "aquinas"],
+    "math_competitive": ["algebra", "competitive programming", "math library", "puzzle"],
+    "science_simulation": ["physics", "astronomy", "chemistry", "biology", "simulation"],
+    "knowledge_reading": ["note taking", "obsidian", "zotero", "e-book", "epub", "spaced repetition", "knowledge base"],
+}
+KIND_LABELS = [("docs", ["doc", "typo", "readme"]), ("test", ["test"]), ("chore", ["chore", "dependenc", "ci", "maintenance"]),
+               ("bug", ["bug", "crash", "error", "fix", "broken", "regression"])]
+
+
+class KeywordClassifier:
+    """No-AI fallback: keyword and label rules. Never confident, so it never auto-dismisses an issue."""
+
+    model = "keywords"
+
+    def classify(self, state_text: str, questions: dict) -> dict[str, dict]:
+        text = state_text.lower()
+        labels = text.split("labels:", 1)[1].split("\n", 1)[0] if "labels:" in text else ""
+        title = text.split("issue:", 1)[1].split("\n", 1)[0] if "issue:" in text else text
+        body_len = len(text.split("body:", 1)[1]) if "body:" in text else 0
+        hits = {c: sum(text.count(w) for w in words) for c, words in CATEGORY_KEYWORDS.items()}
+        best = max(hits, key=hits.get)
+        answers = {
+            "category": best if hits[best] else "other",
+            "kind": next((k for k, words in KIND_LABELS if any(w in labels or re.search(rf"\b{w}", title) for w in words)), "feature"),
+            "difficulty": "small" if re.search(r"good first issue|easy|beginner|typo", labels + title)
+                          else "large" if re.search(r"rfc|design|refactor|epic|breaking", labels + title) or body_len > 1200
+                          else "medium",
+            "worth_a_look": "no" if re.search(r"wontfix|duplicate|invalid|question|needs[- ]design", labels) else "yes",
+        }
+        return {q: {"choice": answers[q] if answers.get(q) in spec["criteria"] else None, "confidence": None, "probabilities": {}}
+                for q, spec in questions.items()}
+
+
+def pick_primary(cfg: Config) -> Classifier:
+    """`classifier` in scout.yaml: jev, agy or keywords. "auto" uses Jev if its key is set, then agy if it is on PATH,
+    then the keyword rules, so the scout runs with nothing configured."""
+    choice = getattr(cfg, "classifier", "auto")
+    if choice == "auto":
+        choice = "jev" if os.environ.get("jev_model_api_key") else "agy" if shutil.which("agy") else "keywords"
+    if choice == "jev":
+        from oss_scout.config import jev_api_key
+        return JevClassifier(JevClient(jev_api_key(), cfg.jev_model, cfg.jev_cache_path))
+    if choice == "agy":
+        return GeminiClassifier(cfg.gemini_model)
+    return KeywordClassifier()
 
 
 def _extract_json(text: str) -> dict:

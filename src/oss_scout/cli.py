@@ -1,14 +1,14 @@
 from __future__ import annotations
 import json
 import logging
+import shutil
 from pathlib import Path
 import click
 from rich.console import Console
 from oss_scout import classify, db, harvest, queue_view, score, transitions, validate
 from oss_scout.agents import analysis, draft
-from oss_scout.config import load_config as _load_config, jev_api_key
+from oss_scout.config import load_config as _load_config
 from oss_scout.github_client import GitHubClient, github_token
-from oss_scout.jev_client import JevClient
 
 console = Console()
 
@@ -23,7 +23,7 @@ def _setup_logging(cfg):
 
 
 def _classifiers(cfg):
-    primary = classify.JevClassifier(JevClient(jev_api_key(), cfg.jev_model, cfg.jev_cache_path))
+    primary = classify.pick_primary(cfg)
     fallback = classify.GeminiClassifier(cfg.gemini_model) if cfg.dropped_questions else None
     return primary, fallback
 
@@ -44,6 +44,9 @@ def _issue_id(conn, ref: str) -> str:
 
 
 def _do_analyze(cfg, conn, limit=None):
+    if shutil.which("agy") is None:  # the analysis agents are optional
+        console.print("analyze: skipped (agy is not installed)")
+        return None
     s = analysis.run_pending(conn, cfg, _gh(cfg), limit)
     logging.info("analyze %s", s)
     console.print(f"analyze: started={s.started} done={s.done} failed={s.failed} skipped_cap={s.skipped_cap} skipped_attempts={s.skipped_attempts}")

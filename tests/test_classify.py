@@ -118,3 +118,40 @@ def test_run_reclassify_asks_one_question_for_classified_issues(tmp_path):
     n = classify.run_reclassify(conn, Config(), clf, "category")
     assert n == 1 and clf.calls == 1  # the harvested one is left for the normal pass
     assert classify.latest(conn, "I1")["category"]["choice"] == "iot_embedded"
+
+
+def _text(title, body="", labels=(), desc="", stars=500):
+    issue = {"repo": "o/r", "title": title, "labels": json.dumps(list(labels)), "body": body, "comments": 1}
+    return classify.issue_state_text(issue, {"stars": stars, "language": "Python", "description": desc})
+
+def test_keyword_classifier_answers_every_question_with_allowed_values():
+    out = classify.KeywordClassifier().classify(_text("Crash when parsing CSV", labels=["bug"]), classify.QUESTIONS)
+    for q, spec in classify.QUESTIONS.items():
+        assert out[q]["choice"] in spec["criteria"]
+        assert out[q]["confidence"] is None  # never confident enough to auto-dismiss
+
+def test_keyword_classifier_reads_labels_and_description():
+    k = classify.KeywordClassifier()
+    out = k.classify(_text("Typo in README", labels=["documentation", "good first issue"], desc="An LLM agent framework"),
+                     classify.QUESTIONS)
+    assert out["kind"]["choice"] == "docs"
+    assert out["difficulty"]["choice"] == "small"
+    assert out["category"]["choice"] == "ai_agents_llm"
+    assert k.model == "keywords"
+
+def test_keyword_classifier_falls_back_to_other_and_feature():
+    out = classify.KeywordClassifier().classify(_text("Something", desc="zzz"), classify.QUESTIONS)
+    assert out["category"]["choice"] == "other" and out["kind"]["choice"] == "feature"
+
+def test_pick_classifier_order(monkeypatch):
+    from oss_scout.config import Config
+    cfg = Config()
+    monkeypatch.delenv("jev_model_api_key", raising=False)
+    monkeypatch.setattr(classify.shutil, "which", lambda name: None)
+    assert isinstance(classify.pick_primary(cfg), classify.KeywordClassifier)
+    monkeypatch.setattr(classify.shutil, "which", lambda name: "/usr/bin/agy")
+    assert isinstance(classify.pick_primary(cfg), classify.GeminiClassifier)
+    monkeypatch.setenv("jev_model_api_key", "k")
+    assert isinstance(classify.pick_primary(cfg), classify.JevClassifier)
+    cfg.classifier = "keywords"
+    assert isinstance(classify.pick_primary(cfg), classify.KeywordClassifier)

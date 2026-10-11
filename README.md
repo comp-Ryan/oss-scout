@@ -1,8 +1,126 @@
-# OSS Scout
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-white.svg">
+    <img src="docs/brand/logo-dark.svg" alt="OSS Scout logo" width="88" height="88">
+  </picture>
+</p>
 
-Finds open GitHub issues worth your time, classifies them with Jev, scores them against your profile, and
-prints a ranked queue. Stage 1 is a CLI; later stages add analysis agents, a dashboard, and a draft-PR flow.
-See `docs/superpowers/specs/2026-10-01-oss-scout-design.md` for the full design.
+<h1 align="center">OSS Scout</h1>
+
+<p align="center">Finds open GitHub issues worth your time, explains them, and drafts the PR, without ever writing to GitHub unless you click.</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"></a>
+  <img alt="Tests: 171 passing" src="https://img.shields.io/badge/tests-171%20passing-2E7D32?style=flat-square&logo=pytest&logoColor=white">
+  <img alt="Self-hosted" src="https://img.shields.io/badge/runs-locally%20(systemd%20timer)-242424?style=flat-square">
+</p>
+<p align="center">
+  <a href="https://docs.github.com/en/rest"><img alt="GitHub API" src="https://img.shields.io/badge/data-GitHub%20REST%20%2B%20GraphQL-181717?style=flat-square&logo=github"></a>
+  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=flat-square&logo=react&logoColor=white">
+  <img alt="TypeScript 6" src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white">
+  <img alt="Vite 8" src="https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white">
+  <img alt="Tailwind 4" src="https://img.shields.io/badge/Tailwind-4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white">
+  <img alt="uv" src="https://img.shields.io/badge/uv-DE5FE9?style=flat-square&logo=uv&logoColor=white">
+</p>
+
+<p align="center"><b>Contributors</b></p>
+<div align="center">
+<table>
+  <tr>
+    <td align="center"><a href="https://github.com/comp-Ryan"><img src="https://github.com/comp-Ryan.png?size=120" width="72" height="72" alt="Ryan"></a><br/><sub><b>Ryan</b></sub><br/><sub><a href="https://github.com/comp-Ryan">@comp-Ryan</a></sub></td>
+  </tr>
+</table>
+</div>
+
+<p align="center">
+  <img src="docs/screenshots/queue.jpg" alt="The queue: ranked issues with category, difficulty and brief status" width="900"><br/>
+  <sub>The queue, ranked by score, with filters for lane, category and difficulty</sub>
+</p>
+
+Contributing to open source is mostly finding the right issue: small enough to finish, in a repo whose maintainers actually merge outside PRs, not already claimed. OSS Scout searches GitHub every hour, scores each issue against your languages and interests, writes a brief for the best ones (likely cause, approach, files, risks), lets you talk the plan through, and then sets up a fork and branch for you to do the work in. It is built to help one person make real contributions, not to spray AI PRs: repos that ban AI-assisted PRs are skipped, and nothing is pushed or opened without your explicit action.
+
+## What works without any keys
+
+| Piece | Needs | Without it |
+|---|---|---|
+| Harvest, score, queue, dashboard | `gh auth login` (the GitHub token comes from `gh auth token`) | required |
+| Classifier | a Jev key, or the `agy` CLI | falls back to keyword rules (`classifier: keywords`) |
+| Analysis briefs and issue chat | the [Antigravity](https://antigravity.google) `agy` CLI | skipped; the queue still works |
+| `scout work` | the `claude` CLI | prints the command instead |
+
+`classifier` in `scout.yaml` is `auto` by default: Jev if `jev_model_api_key` is set, otherwise `agy` if it is on your PATH, otherwise keywords. The keyword rules never auto-dismiss an issue.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+  GH[GitHub search,<br/>repos, timelines] --> H[harvest]
+  SD[Seed lists:<br/>gittrend, up-for-grabs,<br/>goodfirstissue] --> H
+  H --> DB[(SQLite<br/>data/scout.db)]
+  DB --> C[classify<br/>Jev / agy / keywords]
+  C --> S[score]
+  S --> A[analysis agent<br/>reads a clone]
+  A --> DB
+  DB --> API[FastAPI]
+  API --> UI[React dashboard<br/>Queue, Board, Agents]
+  UI --> P[prep / work / submit<br/>only on your click]
+  P --> GH
+  classDef ai fill:#6E56CF,color:#fff,stroke:#6E56CF
+  classDef code fill:#1f2937,color:#fff,stroke:#1f2937
+  classDef you fill:#b45309,color:#fff,stroke:#b45309
+  class C,A ai
+  class H,S,API,UI code
+  class P you
+```
+
+## Which issues make the queue
+
+```mermaid
+flowchart TD
+  I[Open issue] --> R{Repo above the star floor,<br/>active in the last 60 days?}
+  R -- no --> X[Skipped]
+  R -- yes --> AI{Contributing docs<br/>ban AI-assisted PRs?}
+  AI -- yes --> X
+  AI -- no --> PR{Open PR already<br/>closes it?}
+  PR -- yes --> X
+  PR -- no --> W{Classifier: worth a look,<br/>no with high confidence?}
+  W -- yes --> D[Dismissed]
+  W -- no --> SC[Scored: recognition, mergeability,<br/>language, category, difficulty, freshness]
+  SC --> T{Top N and above<br/>the floor?}
+  T -- yes --> Q[Shortlist + brief]
+  T -- no --> L[Stays in the full list]
+  classDef good fill:#15803d,color:#fff,stroke:#15803d
+  classDef bad fill:#b91c1c,color:#fff,stroke:#b91c1c
+  classDef grey fill:#6b7280,color:#fff,stroke:#6b7280
+  class Q good
+  class X,D bad
+  class L grey
+```
+
+## From issue to draft PR
+
+```mermaid
+sequenceDiagram
+  actor You
+  participant D as Dashboard
+  participant A as Analysis agent
+  participant S as scout
+  participant G as GitHub
+  S->>G: Hourly harvest (read-only)
+  A->>D: Brief: cause, approach, files, risks
+  You->>D: Discuss, then Approve plan
+  You->>S: prep (fork, branch, BRIEF.md)
+  S->>G: gh repo fork
+  You->>S: work, then commit yourself
+  You->>S: submit
+  S->>S: Run the repo's tests
+  S->>G: Push + draft PR "Closes #N"
+  G-->>D: Merged or closed, picked up hourly
+```
+
+The full design is in `docs/superpowers/specs/2026-10-01-oss-scout-design.md`.
 
 **Rule:** nothing here writes to GitHub. Stage 1 only reads: search, repo metadata, issue timelines, and
 contributing files.
@@ -12,7 +130,7 @@ contributing files.
 ```bash
 cd oss-scout
 uv sync --extra dev
-cp .env.example .env   # then put your Jev key in jev_model_api_key=
+cp .env.example .env   # optional: a Jev key in jev_model_api_key=
 gh auth status         # the GitHub token comes from `gh auth token`
 ```
 
@@ -21,7 +139,7 @@ gh auth status         # the GitHub token comes from `gh auth token`
 | command | what it does |
 |---|---|
 | `uv run scout harvest` | run the GitHub searches, store new issues, refresh repo signals, mark stale ones |
-| `uv run scout classify [--limit N]` | ask Jev the four questions for every `harvested` issue |
+| `uv run scout classify [--limit N]` | answer the four questions for every `harvested` issue (Jev, agy or keywords) |
 | `uv run scout score` | score every `classified` or `shortlisted` issue and refresh the top-N shortlist |
 | `uv run scout run` | the three above in order (what the hourly timer calls) |
 | `uv run scout queue [--category C] [--state S] [--limit N] [--json]` | the ranked list with URLs |
@@ -78,9 +196,8 @@ The only part that writes to GitHub, and only on these explicit actions (buttons
 Commits are yours. The bot never runs `git commit`, never marks a PR ready, never comments. The hourly
 run checks open draft PRs and moves the issue to `merged` or `closed` when GitHub says so.
 
-**First run note (2026-10-01):** the live fork, push and PR path has not been exercised; every git and gh
-call is covered by tests against a fake shell, but the first real `scout prep` and `scout submit` are
-yours to run and watch.
+**Status:** every git and gh call in this flow is covered by tests against a fake shell, but the live fork,
+push and PR path has not been run end to end yet. Watch your first `scout prep` and `scout submit`.
 
 ## Config
 
@@ -126,7 +243,7 @@ agreement per question. A question is dropped when one answer dominates (above 8
 60%. Dropped questions are listed in `scout.yaml` under `dropped_questions` and answered by Gemini Flash
 through the `agy` CLI instead. The latest report is in `fixtures/`.
 
-The labels in the fixture were made by Claude on 2026-10-01 and are provisional until Ryan reviews them.
+The labels in the fixture were made by an AI model on 2026-10-01 and are provisional until a person reviews them.
 
 ## Running it hourly
 
@@ -142,7 +259,7 @@ Logs: `data/scout.log`. Database: `data/scout.db` (SQLite). Jev responses are ca
 
 `uv run pytest`. No test touches the network or a real database.
 
-## Known issues (2026-10-01, first live run)
+## Known issues
 
 - The score does not yet see closed PRs. Issue langchain-ai/langchain#40592 ranked third with seven closed
   PRs against it, which usually means a contested or harder-than-it-looks issue. Stage 2's brief reports
@@ -151,5 +268,9 @@ Logs: `data/scout.log`. Database: `data/scout.db` (SQLite). Jev responses are ca
   but still cost classification calls. A language allowlist on keyword hits is a candidate tweak.
 - Every hourly run re-checks each known open issue for a closing PR (one GraphQL call per issue). At ~1,000
   issues that is most of the run's calls. Checking only issues whose `updated_at` changed would cut it.
-- The 60 labels in `fixtures/labeled_issues.json` are Claude's, not Ryan's. Re-run `scout validate-classifier`
-  after reviewing them.
+- The 60 labels in `fixtures/labeled_issues.json` were written by an AI model, not reviewed by a person yet.
+  Re-run `scout validate-classifier` after reviewing them.
+
+## License
+
+[MIT](LICENSE)

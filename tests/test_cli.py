@@ -59,7 +59,7 @@ def test_help_lists_serve_and_open():
 def test_service_unit_exists_with_path():
     from pathlib import Path
     unit = (Path(__file__).resolve().parents[1] / "systemd" / "oss-scout.service").read_text()
-    assert "uv run scout serve" in unit and "Environment=PATH=/home/ryan/.local/bin:" in unit and "Restart=on-failure" in unit
+    assert "@UV@ run scout serve" in unit and "Environment=PATH=@UV_DIR@:" in unit and "Restart=on-failure" in unit
 
 def test_help_lists_prep_work_submit():
     r = CliRunner().invoke(cli.main, ["--help"])
@@ -84,3 +84,11 @@ def test_prep_work_submit_commands_call_draft(tmp_path, monkeypatch):
     r = CliRunner().invoke(cli.main, ["submit", "o/r#4", "--title", "T"])
     assert r.exit_code == 0 and "pull/1" in r.output
     assert [s[0] for s in seen] == ["prep", "work", "submit"] and seen[2][2] == "T"
+
+
+def test_analyze_skips_cleanly_without_agy(monkeypatch):
+    called = []
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cli.analysis, "run_pending", lambda *a, **k: called.append(1))
+    assert cli._do_analyze(Config(), None) is None
+    assert called == []

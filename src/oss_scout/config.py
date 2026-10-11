@@ -104,6 +104,7 @@ class Config:
     shortlist_floor: float = 4.0
     shortlist_per_repo_cap: int = 3  # keeps one big repo from filling the whole shortlist
     dismiss_confidence: float = 0.9
+    classifier: str = "auto"  # auto, jev, agy or keywords (see classify.pick_primary)
     jev_model: str = "jev-latest"
     dropped_questions: list[str] = field(default_factory=list)
     gemini_model: str = "gemini-3.8-flash-medium"
